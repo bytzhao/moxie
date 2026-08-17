@@ -45,6 +45,8 @@
     - Generally we need to find the core functionality of this website.
     - PRIMARY QUESTION: What is the sort of user experience that is most engaging & beneficial for the product goals stated above?
     - Also - is it too gamey, not gamey enough, etc.
+NEW IDEA (7/25): user records reading a passage and the accuracy is decoded? 
+NEW IDEA (8/3): Voice -> English translation.
 
 - Vocabulary storage paradigm: individual words are distinct from use cases in particular phrases...
     - Do we store individual words independently from phrases?
