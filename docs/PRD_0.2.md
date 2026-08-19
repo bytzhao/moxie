@@ -99,6 +99,8 @@ At the beginning of the FPG process, **recency scores** are calculated for each 
     $$
     T = 1 - e^-(\lambda\Delta t)
     $$
+    - Immediately following the baseline calibration, the last interaction takes the timestamp of calibration, used to calculate $\Delta t$ until the first appearance has happened.
+    - $\Delta t$ is stored as a decimal number of days.
 
 2. **Relative Interaction Pressure:** score that, depending on the density of appearance in the most recent 50 FPGs, enumerates the relative priority of this word to others
     - An Encounter Density score $D_e$ is calculated as the appearance percentage in the last 50 FPGs, stored as a probability between 0 and 1 (*if the total history contains less than 50 total sessions, the maximum session total is simply taken*)
@@ -277,7 +279,7 @@ The repo layout is structured as follows:
     - Full 11K HSK 3.0 vocabulary list 
     - `seed.py` - initial (hardcoded, for now) seeding of the database with appropriate baseline calibrations
     - `db.py` - establishes connection to the database
-At the root is also: `.venv`, `.env`, `requirements.txt`, `README.md`, and `.gitignore`.
+At the root is also: `.venv`, `.env`, `requirements.txt`, `README.md`, `CLAUDE.md` and `.gitignore`.
 
 Environment handling... .venv probably? requirements.txt needed maybe.
 
