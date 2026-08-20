@@ -349,7 +349,7 @@ Each entry records what was decided, why, and what evidence would justify reopen
         - **Revisit if:** never, without a stated reason.
     - ***Terminator is a space or a tone digit (1–5), runs collapsed.*** Covers both word-chunked (`xi3huan1`) and character-spaced (`xi huan`) input; tone becomes an orthogonal grading dial, not structural.
         - **Revisit if:** accepting both proves ambiguous in an unforeseen case.
-    - ***Tone marks mandatory in phase 1.*** Punishing for most learners, near-free for a heritage speaker — the strong half. Enables word-chunking, richer signal; avoids a later migration. Neutral is `5`.
+    - ***Tone marks mandatory in phase 1.*** Punishing for most learners, near-free for a heritage speaker — the strong half. Enables word-chunking, richer signal; avoids a later migration. Neutral is `0`.
         - **Revisit if:** tone entry dominates error volume, obscuring the decoding signal.
     - ***No real-time correctness feedback.*** Live marking turns retrieval into copying. Cursor shows position only; reveal at submit.
         - **Revisit if:** never for the primary mode; a separate practice mode could relax this.
