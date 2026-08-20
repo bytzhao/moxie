@@ -1,5 +1,4 @@
 # FUNCTIONALITY: segments, validates, and produces pinyin for the Claude passage
-
 """
 Inputs:
     1. Dict compiling allowed vocab units:
@@ -17,9 +16,10 @@ In case of any ERROR - (1) hallucination, (2) not-allowed words used, or (3) fro
 
 
 # loads entire HSK 3.0 txt into O(1) navigatable list (tupling chars with pinyin )
-from data.hsk_vocab import HSK_VOCAB
+from data.hsk_vocab import HSK_VOCAB, exists, pinyin_readings
 
 
+# -------------------
 # loads poly chars file into O(1) navigatable list (tupling chars to pinyin representations) 
 def _load_polyphonic_chars(path):
     chars = {}
@@ -44,7 +44,12 @@ def segment_and_validate(
         
 ):
     # generate segmented Mandarin text
+        # BiMM - FMM + BMM modules
+    
+    # if error exists, send back to Claude (END LOOP TOTALLY) for re-generation 
 
-    # generate segmented Pinyin text
+    # else - generate segmented Pinyin text
+
+    # if pinyin is obscure, up to caller to re-call a separate remedy_pinyin function 
     return 0
 

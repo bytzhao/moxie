@@ -31,10 +31,12 @@ def _load_hsk_vocab(path):
 HSK_VOCAB = _load_hsk_vocab("data/hsk30.txt")
 
 
+# returns T/F if word exists or not
 def exists(word):
     return word in HSK_VOCAB
 
 
+# returns tupled pinyin strings for an HSK word
 def pinyin_readings(word):
     """All numbered-pinyin readings for a word, or () if not in the list."""
     return tuple(entry.pinyin for entry in HSK_VOCAB.get(word, ()))
