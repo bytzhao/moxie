@@ -10,7 +10,7 @@ Written for:
 ## I. Project Overview
 Moxie 1.0 is a Claude-enabled Mandarin decoding-fluency trainer designed to prompt the user with challenging texts. These are produced by taking into account their literacy level, which is gauged from their vocabulary arsenal, grammatical and syntactical maturity, rhetorical understanding, etc. While the desire is eventually to mature Moxie into an all-rounded language trainer that tests comprehension through translation as well, the first phase is solely concerned with the decoding of Chinese characters into pinyin. 
 
-***IMPORTANT: any additional information about the project is detailed in the most recent version of the PRD in the data folder, detailed at the top of this file. 
+***IMPORTANT: any additional information about the project is detailed in the most recent version of the PRD in the data folder, detailed at the top of this file. IF SPECIFIED EXPLICITLY BY THE USER, READ THE PRD.
 
 
 ## II. Divison of Labor
