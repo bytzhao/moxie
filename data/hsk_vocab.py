@@ -1,14 +1,15 @@
-# Loads data/hsk30.txt (built by prepare_hsk30.py) into a dict once, for fast
-# existence checks and pinyin lookup against the HSK 3.0 vocabulary list.
-#
-# Unlike polychars.txt - where every reading belongs to one character - a
-# vocab word can itself have multiple valid readings (e.g. 好 hao3/hao4,
-# 地方 di4fang0/di4fang1), so each word maps to a tuple of entries. One line
-# per word, readings packed onto it as "pinyin:level:pos:traditional" joined
+# FUNCTIONALITY: Loads data/hsk30.txt (built by prepare_hsk30.py) => Python dict once, 
+"""
+1. Fast existence checks and pinyin lookup against the HSK 3.0 vocabulary list.
+2. Dict maps Mandarin word strings to TUPLES of pinyin readings
+    - to accomodate words w/ multiple valid readings in different contexts
+3. One line per word, readings packed onto it as "pinyin:level:pos:traditional" joined
 # by ";" - same shape as backend/segmenter.py's POLYPHONIC_CHARS, just with
 # structured fields per reading instead of a bare pinyin string.
+"""
 
 from collections import namedtuple
+from pathlib import Path
 
 HskEntry = namedtuple("HskEntry", "pinyin level pos traditional")
 
@@ -27,17 +28,21 @@ def _load_hsk_vocab(path):
             )
     return vocab
 
+# generate HSK dictionary from txt using above
+# need to define path explicitly, since running w/ CWD = potential FileNotFoundError
+HSK_TXT_PATH = Path(__file__).parent / "hsk30.txt"  
+HSK_VOCAB = _load_hsk_vocab(HSK_TXT_PATH)
 
-# run storage
-HSK_VOCAB = _load_hsk_vocab("data/hsk30.txt")
 
-
+# ---------------------------
+# Helpers
+# ---------------------------
 # returns T/F if word exists or not in dict
 def exists(word):
     return word in HSK_VOCAB
 
 
-# returns tupled pinyin strings for an HSK word
+# returns tuple of pinyin strings for a given HSK word
 def pinyin_readings(word):
     """All numbered-pinyin readings for a word, or () if not in the list."""
     return tuple(entry.pinyin for entry in HSK_VOCAB.get(word, ()))
