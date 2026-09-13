@@ -40,37 +40,51 @@ def _load_polyphonic_chars(path):
 POLYPHONIC_CHARS = _load_polyphonic_chars("data/polychars.txt")
 
 """
+
+import regex
+
+# import entire HSK dict (word to pinyin readings tuple) & helpers
+from data.hsk_vocab import HSK_VOCAB, exists, pinyin_readings
+
+# static max length of all HSK 3.0 words
+MAX_WORD_LEN = max(len(w) for w in HSK_VOCAB)
+
 # --------------------
 # Entry Point
 # --------------------
 def segment_and_validate(
-        # entire list of permissible words: (1) always-allowed list, (2) all encountered words of HSK list
-        # the raw passage - including all punctuation
+        
+        passage : str,          # the raw passage - including all punctuation
+        hsk_dict : dict         # all HSK, mapping words to (1) frontier, (2) encountered, (3) not encountered
 ):
-    # generate segmented Mandarin text (BiMM)
-        # strip strings of all punctuation first
-        # find MAX length of word (from user's known words)
-        # FMM
-        # BMM
-        # analysis & choice
-    
-    # if unpermissible words exist, send back to Claude (END LOOP COMPLETELY) for re-generation 
+    # 1) BiMM segmentation
+    # extract only the chinese characters
+    trim_passage = ""
+    for ch in passage:
+        if bool(regex.match(r'\p{Han}', ch)):
+            trim_passage.append(ch)
 
-    # else - generate segmented Pinyin text
+    # conduct FMM and BMM
 
-    # if pinyin is obscure, up to caller to re-call a separate remedy_pinyin function 
+    # hallucination analysis: if unpermissible words exist, send back to Claude (END LOOP COMPLETELY) for re-generation 
+
+    # BiMM decision: (1) any not encountered words & (2) min <= # of frontier words <= max
+
+    # if NEITHER fulfills both, send back to Claude
+
+    # 2) Pinyin Generation
+
+    # if pinyin is obscure, send to caller to re-call a separate remedy_pinyin function 
     # ^need to call Claude again to verify usage
     return 0
 
 
 # Forward Maximum Matching
-# input: raw Mandarin string, max word legnth
-# output: string list of compartmentalized words
 def fmm(
     passage : str,
     passage_len : int,
-    max_word_len : int,
-    allowed_words : set     # stripped down list of JUST words (strings) - essentially list but O(1) since Python does free hashing
+    hsk_list : dict = HSK_VOCAB,                    # static imported dict from txt
+    max_word_len : int = MAX_WORD_LEN               # static max length of entire HSK
 ):
     current_char = 0        # pointer to char where currently evaluating next longest word
     seg_passage = []        # list of individual word strings
@@ -97,7 +111,7 @@ def fmm(
             poss_word = passage[current_char : current_char + num_chars]
 
             # if we've found a word
-            if poss_word in allowed_words:
+            if poss_word in hsk_list:
                 # mark as found and exit
                 word_is_found = True
                 break
@@ -126,13 +140,11 @@ def fmm(
 
 
 # Backward Maximum Matching
-# input: raw Mandarin string
-# output: string list of compartmentalized words
 def bmm(
     passage : str,
     passage_len : int,
-    max_word_len : int,
-    allowed_words : set
+    hsk_list : dict = HSK_VOCAB,
+    max_word_len : int = MAX_WORD_LEN
 ):
     current_char = passage_len - 1      # pointer to char where currently evaluating next longest word
     seg_passage = []                    # list of individual word strings
@@ -159,7 +171,7 @@ def bmm(
             poss_word = passage[current_char - num_chars + 1 : current_char + 1]
     
             # if we've found a word
-            if poss_word in allowed_words:
+            if poss_word in hsk_list:
                 # mark as found and exit
                 word_is_found = True
                 break

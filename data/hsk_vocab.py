@@ -13,6 +13,7 @@ from collections import namedtuple
 HskEntry = namedtuple("HskEntry", "pinyin level pos traditional")
 
 
+# reads txt into full HSK (word->tuple of pinyin readings) dict
 def _load_hsk_vocab(path):
     vocab = {}
     with open(path, encoding="utf-8") as f:
@@ -27,11 +28,11 @@ def _load_hsk_vocab(path):
     return vocab
 
 
-# word -> tuple of HskEntry, one per distinct reading
+# run storage
 HSK_VOCAB = _load_hsk_vocab("data/hsk30.txt")
 
 
-# returns T/F if word exists or not
+# returns T/F if word exists or not in dict
 def exists(word):
     return word in HSK_VOCAB
 
