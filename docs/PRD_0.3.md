@@ -2,8 +2,12 @@
 
 **Product Phase:** 1 - initial PoC prototype
 **Document Version:** 0.3
-**Date:** August 20th, 2026
+**Date:** September 15th, 2026
 
+*Version history note: this file serves as a dynamic version that will accompany the entirety of the first phase of development.*
+- September 15th, 2026: removed func-word allow-list as Phase 1 priority:
+    - Essentially all are already in the HSK 3.0 vocabulary list (static file `data/hsk30.txt`).
+    - Tracking elementary users' grasp of function words is not important at this phase since Moxie is still for personal use primarily.
 
 ## I. Content & Objectives
 Broadly, the purpose of Moxie is two-fold:
@@ -132,7 +136,7 @@ Phase 1 is concerned with only one user. However, the architecture of the data i
 
 **On migration posture:** eventualy it will be the case that I would like to preserve my personal AVD through development changes and feature additions. However, for this initial phase of development no migration is necessary at all. A `seed.py` notebook builds the entire DB from scratch, and changes in schema will require a full re-seed. Seeding imports the entire HSK 3.0 vocabulary list and applies the baseline calibrations.
 
-To calibrate a baseline literacy for the user at the absolute start of usage, the user simply selects an HSK level appropriate for their level. All vocab words belonging to levels under this will be tagged as Familiar, while all those *at* this level will be tagged Learning. Those above will remain Not Encountered. Additionally, a separate, static function-word allowlist (的, 了, 是, 在, 不, 我, 你, 有, 这, 就) is permitted regardless of AVD status. These words are NOT tested. 
+To calibrate a baseline literacy for the user at the absolute start of usage, the user simply selects an HSK level appropriate for their level. All vocab words belonging to levels under this will be tagged as Familiar, while all those *at* this level will be tagged Learning. Those above will remain Not Encountered. No separate function-word allowlist is needed on top of this: nearly every common grammatical particle (的, 了, 是, 不, 吗, 呢, 吧, etc.) is already an individual entry in the HSK 3.0 list, so baseline calibration alone tags them Familiar/Learning from session one, provided the user actually holds real vocabulary at that level going in (see the momentum assumption in Section XIX). The one confirmed exception, 呗, is simply excluded from the AVD and will never be generated or tested — not worth a special case for one word.
 
 
 ## VIII. FPG Specifications
@@ -386,8 +390,8 @@ Each entry records what was decided, why, and what evidence would justify reopen
         - **Revisit if:** segmenter error rate proves unworkable — jieba is the fallback.
     - ***Model emits raw passage plus per-character pinyin; a polyphone table bounds trust.*** Segmentation resolves most polyphony via unique compound readings; the residue — polyphones like 了, 得, 长 — a dictionary can't resolve. Dictionary pinyin applies except in a bounded table (~100 entries), where the model's reading wins.
         - **Revisit if:** the table grows unmaintainable, or model pinyin proves unreliable on polyphones.
-    - ***Function-word allowlist is permanently permitted.*** 的, 了, 是, 不, 我 and similar are always available, never counted as new vocabulary, never a frontier target. Without this, cold-start generation is impossible.
-        - **Revisit if:** a listed word warrants testing as a frontier target.
+    - ***No dedicated function-word allowlist; HSK coverage plus baseline calibration already handles it.*** 的, 了, 是, 不, 我 and nearly every other common grammatical particle are individual entries in the HSK 3.0 list already, confirmed directly against `hsk30.txt` — the sole gap being 呗, which is simply left out of the AVD entirely rather than special-cased. Combined with baseline calibration (bulk-assigning at-or-below-level words to Familiar/Learning at seed time), these words are marked encountered before FPG ever runs, under the standing assumption that phase-1 usage always starts with real vocabulary momentum (>150 encountered words) rather than a true cold start. A dedicated allowlist mechanism would only earn its keep for a genuinely new user with near-empty AVD history — deferred along with general new-user onboarding.
+        - **Revisit if:** cold-start onboarding for a user without existing momentum gets built, or a future gap word (beyond 呗) turns out to be both missing from HSK and load-bearing for basic sentence formation.
     - ***Baseline calibration precedes first use.*** Seeding all words as Not Encountered takes hundreds of sessions to reach my level, and makes session one ungenerateable. Bulk-assign by HSK level: at/below → Familiar/Solid, one above → Learning, rest → Not Encountered.
         - **Revisit if:** bulk assignment proves badly miscalibrated — passages feel trivial or unreadable early on.
 
