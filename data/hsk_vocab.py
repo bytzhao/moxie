@@ -11,6 +11,8 @@
 from collections import namedtuple
 from pathlib import Path
 
+from collections import Counter
+
 HskEntry = namedtuple("HskEntry", "pinyin level pos traditional")
 
 
@@ -46,3 +48,45 @@ def exists(word):
 def pinyin_readings(word):
     """All numbered-pinyin readings for a word, or () if not in the list."""
     return tuple(entry.pinyin for entry in HSK_VOCAB.get(word, ()))
+
+
+# independently tests for duplicate word values in the hsk txt file
+def check_hsk_duplicates():
+    # extract all of the words in the txt file
+    words = []
+    with open(HSK_TXT_PATH, encoding="utf-8") as hsk:
+        for line in hsk:
+            man_word = line.split("\t", 1)[0]
+            words.append(man_word)
+    
+    # stores dict of words->counts for ALL HSK
+    counts = Counter(words)
+
+    # log duplicates (take all elements in counts dict IF counts > 1)
+    duplicates = {key: count for key, count in counts.items() if count > 1}
+    for word in duplicates:
+        print("word: " + word)
+
+def dict_equals_txt():
+
+    # compute num of unique words in txt file
+    txt_word_count = 0
+    with open(HSK_TXT_PATH, encoding="utf-8") as hsk:
+        for line in hsk:
+            line = line.rstrip("\n")
+            if not line:
+                continue
+            txt_word_count += 1
+
+    # if num is equal to actual dict, it's good
+    return len(HSK_VOCAB) == txt_word_count
+    
+
+
+
+
+def main():
+    print(dict_equals_txt())
+
+if __name__ == "__main__":
+    main()
