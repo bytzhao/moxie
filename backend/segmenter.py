@@ -89,18 +89,85 @@ def segment_and_validate(
             trim_passage.append(ch)
 
     # conduct FMM and BMM
+    fmm_seg_passage, fmm_unknown = fmm(trim_passage, passage_len)
+    bmm_seg_passage, bmm_unknown = bmm(trim_passage, passage_len)
+    
+    # 2) Hallucination Analysis & Validation
+    fmm_analysis = None
+    bmm_analysis = None
+    # Cases:
+        # (1) both unknown lists are NOT empty = pick shorter list
+    if len(fmm_unknown) and len(bmm_unknown):
+        if len(fmm_unknown) > len(bmm_unknown):
+            # return bmm unknown chars
+            raise HallucinatedWordsError(bmm_unknown)
+        # otherwise return fmm's
+        raise HallucinatedWordsError(fmm_unknown)
 
-    # hallucination analysis: if unpermissible words exist, send back to Claude (END LOOP COMPLETELY) for re-generation 
+    # (2) one is good, the other isn't => continue validating w/ remaining one
+    elif len(fmm_unknown):
+        bmm_analysis = validate_seg(frontier_min, frontier_max, hsk_dict, bmm_seg_passage)
+    elif len(bmm_unknown):
+        fmm_analysis = validate_seg(frontier_min, frontier_max, hsk_dict, fmm_seg_passage)
+    # (3) both are good => validate w/ both
+    else:
+        fmm_analysis = validate_seg(frontier_min, frontier_max, hsk_dict, fmm_seg_passage)
+        bmm_analysis = validate_seg(frontier_min, frontier_max, hsk_dict, bmm_seg_passage)
 
-    # BiMM decision: (1) any not encountered words & (2) min <= # of frontier words <= max
+
+    # 3) BiMM decision: 
+
+    # Three cases:
+    # (1) neither passage passed both tests:
+        # if neither passed NotEncountered, report one with lower
+        # otherwise report one with higher Frontier Words
+        # RETURN TO CLAUDE
+    # (2) only one passage passed -> return that one
+    # (3) both passages passed -> return BMM
 
     # if NEITHER fulfills both, send back to Claude
+    return 0
 
-    # 2) Pinyin Generation
 
     # if pinyin is obscure, send to caller to re-call a separate remedy_pinyin function 
     # ^need to call Claude again to verify usage
     return 0
+
+
+# ---------------------
+# Callees 
+# ---------------------
+
+# validates fmm/bmm segmentation
+def validate_seg(
+        frontier_min : int,
+        frontier_max : int,
+        hsk_dict : dict,
+        seg_passage : list[str]
+):
+    # instantiate the two dicts:
+    seg_analysis = {
+        "is_valid" : True,
+        "num_frontier" : 0,
+        "not_encountered" : []
+    }
+
+    # parse word by word, increment frontier # and keep track of 
+    for word in seg_passage:
+        # if not encountered, flag and keep going
+        if word not in hsk_dict:
+            seg_analysis["not_encountered"].append(word)
+            seg_analysis["is_valid"] = False 
+        # otherwise, check if frontier
+        else:
+            if hsk_dict[word] == True:
+                seg_analysis["num_frontier"] += 1
+
+    # if is_valid is still True (all words encountered), check frontier
+    if seg_analysis["is_valid"]:
+        seg_analysis["is_valid"] = seg_analysis["num_frontier"] >= frontier_min and seg_analysis["num_frontier"] <= frontier_max
+    
+    return seg_analysis
 
 
 # Forward Maximum Matching
@@ -224,18 +291,40 @@ def bmm(
 
 # test FMM
 def main():
-    test_passage = "你好我的名字是小明这个是我的第一次用电脑写字" # no punc at this level
     # ONLY 电脑 IS NOT ALLOWED
+    seg_passage = [
+        "你好", 
+        "我", 
+        "的", 
+        "名字", 
+        "是",
+        "小明",
+        "这个",
+        "第一次",
+        "用", 
+        "电脑",
+        "写字",
+    ]
+
     test_passage_len = 22
-    allowed_words = set({"你好", "我", "的", "名字", "是", "小明", "这个", "第一次", "用", "写字"})
+    hsk_dict = {
+        "你好" : True, 
+        "我" : True, 
+        "的" : True, 
+        "名字" : True, 
+        "是" : True, 
+        "小明" : False, 
+        "这个" : False, 
+        "第一次" : False, 
+        "用" : False, 
+        "电脑" : False,
+        "写字" : False}
     max_words = 3
 
-    seg_passage, unknown_words = bmm(test_passage, test_passage_len, max_words, allowed_words)
-    for word in seg_passage:
-        print(word)
-    print("------\n")
-    for word in unknown_words:
-        print(word)
+    seg_analysis = validate_seg(3, 10, hsk_dict, seg_passage)
+    print(seg_analysis["is_valid"])
+    print(seg_analysis["num_frontier"])
+    print(seg_analysis["not_encountered"])
 
 if __name__ == "__main__":
     main()
