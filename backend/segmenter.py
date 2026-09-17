@@ -76,10 +76,11 @@ MAX_WORD_LEN = max(len(w) for w in HSK_VOCAB)
 # --------------------
 # Entry Point
 # --------------------
-def segment_and_validate(
-        
+def bimm(
         passage : str,          # the raw passage - including all punctuation
-        hsk_dict : dict         # all HSK, mapping words to (1) frontier, (2) encountered, (3) not encountered
+        hsk_dict : dict,        # all ENCOUNTERED words mapped to frontier or not (NO pinyin - use static)
+        frontier_min : int,     # min frontier words acceptable in passage
+        frontier_max : int      # max frontier words acceptable in pasage
 ):
     # 1) BiMM segmentation
     # extract only the chinese characters
@@ -129,8 +130,12 @@ def segment_and_validate(
     return 0
 
 
-    # if pinyin is obscure, send to caller to re-call a separate remedy_pinyin function 
-    # ^need to call Claude again to verify usage
+# takes valid segmented passage and produces pinyin answer key
+def gen_pinyin(
+        seg_passage : list,                 # segmented passage (list of strings)
+        poly_chars : list,                  # imported polychars as dict (chars -> tuples of pinyin)
+        hsk_pinyin_list : dict=HSK_VOCAB    # dict (chars to pinyin map)
+):
     return 0
 
 
