@@ -88,6 +88,8 @@ def bimm(
     for ch in passage:
         if bool(regex.match(r'\p{Han}', ch)):
             trim_passage.append(ch)
+    trim_passage = "".join(trim_passage)
+    passage_len = len(trim_passage)
 
     # conduct FMM and BMM
     fmm_seg_passage, fmm_unknown = fmm(trim_passage, passage_len)
