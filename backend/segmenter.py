@@ -43,6 +43,30 @@ POLYPHONIC_CHARS = _load_polyphonic_chars("data/polychars.txt")
 
 import regex
 
+# -------------------
+# Segmentation Errors
+# -------------------
+# if non-HSK words used, throw back to Claude
+class HallucinatedWordsError(Exception):
+    # exception constructor called when an error is "raised" by callee
+    def __init__(self, halluc_words_list, message="non-HSK words detected"):        # arguments after "self" are EXPLICITLY passed in
+        super().__init__(message)
+        self.halluc_words_list = halluc_words_list
+
+
+# if not-encountered words used, throw back to Claude
+class NotEncounteredWordsError(Exception):
+    def __init__(self, unlearned_words_list, message="Not-encountered words detected"):
+        super().__init__(message)
+        self.unlearned_words_list = unlearned_words_list
+
+
+class FrontierWordsCountError(Exception):
+    def __init__(self, num_frontier_words, message="Number of frontier words falls outside valid bounds"):
+        super().__init__(message)
+        self.num_frontier_words = num_frontier_words
+
+
 # import entire HSK dict (word to pinyin readings tuple) & helpers
 from data.hsk_vocab import HSK_VOCAB, exists, pinyin_readings
 
