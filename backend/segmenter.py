@@ -42,6 +42,7 @@ POLYPHONIC_CHARS = _load_polyphonic_chars("data/polychars.txt")
 """
 
 import regex
+from enum import IntEnum
 
 # -------------------
 # Segmentation Errors
@@ -66,6 +67,17 @@ class FrontierWordsCountError(Exception):
         super().__init__(message)
         self.num_frontier_words = num_frontier_words
 
+class ValidationCode(IntEnum):
+    VALID_PASSAGE = 0
+    HALLUC_ERROR = 1
+    NOT_ENCOUNTERED_ERROR = 2
+    FRONTIER_ERROR = 3
+
+ERROR_TABLE = {
+    ValidationCode.HALLUC_ERROR: (HallucinatedWordsError, lambda x: x),
+    ValidationCode.NOT_ENCOUNTERED_ERROR: (NotEncounteredWordsError, lambda x: x),
+    ValidationCode.FRONTIER_ERROR: (FrontierWordsCountError, len)
+}
 
 # import entire HSK dict (word to pinyin readings tuple) & helpers
 from data.hsk_vocab import HSK_VOCAB, exists, pinyin_readings
@@ -82,9 +94,9 @@ def bimm(
         frontier_min : int,     # min frontier words acceptable in passage
         frontier_max : int      # max frontier words acceptable in pasage
 ):
-    # 1) BiMM segmentation
-    # extract only the chinese characters
-    trim_passage = ""
+    # 1) FMM & BMM Segmentation
+    # extract only chinese chars from the given passage
+    trim_passage = []
     for ch in passage:
         if bool(regex.match(r'\p{Han}', ch)):
             trim_passage.append(ch)
@@ -95,41 +107,48 @@ def bimm(
     fmm_seg_passage, fmm_unknown = fmm(trim_passage, passage_len)
     bmm_seg_passage, bmm_unknown = bmm(trim_passage, passage_len)
     
-    # 2) Hallucination Analysis & Validation
-    fmm_analysis = None
-    bmm_analysis = None
-    # Cases:
-        # (1) both unknown lists are NOT empty = pick shorter list
-    if len(fmm_unknown) and len(bmm_unknown):
-        if len(fmm_unknown) > len(bmm_unknown):
-            # return bmm unknown chars
-            raise HallucinatedWordsError(bmm_unknown)
-        # otherwise return fmm's
-        raise HallucinatedWordsError(fmm_unknown)
+    # 2) Validation
+    fmm_analysis = validate_seg(frontier_min, frontier_max, hsk_dict, fmm_seg_passage, fmm_unknown)
+    bmm_analysis = validate_seg(frontier_min, frontier_max, hsk_dict, bmm_seg_passage, bmm_unknown)
 
-    # (2) one is good, the other isn't => continue validating w/ remaining one
-    elif len(fmm_unknown):
-        bmm_analysis = validate_seg(frontier_min, frontier_max, hsk_dict, bmm_seg_passage)
-    elif len(bmm_unknown):
-        fmm_analysis = validate_seg(frontier_min, frontier_max, hsk_dict, fmm_seg_passage)
-    # (3) both are good => validate w/ both
+
+    # 3) Evaluation
+    fmm_validate_code = fmm_analysis["is_valid"]
+    bmm_validate_code = bmm_analysis["is_valid"]
+
+    # (1) Neither is a valid segmentation
+    if fmm_validate_code != 0 and bmm_validate_code != 0:
+        # A) errors are different -> return higher one
+        if fmm_validate_code > bmm_validate_code:
+            error_code, error_return = ERROR_TABLE[fmm_validate_code]
+            raise error_code(error_return(list(fmm_analysis.values())[fmm_validate_code]))
+        
+        elif fmm_validate_code < bmm_validate_code:
+            error_code, error_return = ERROR_TABLE[bmm_validate_code]
+            raise error_code(error_return(list(bmm_analysis.values())[bmm_validate_code]))
+
+        # B) errors are the same
+        else:
+            error_code, error_return = ERROR_TABLE[bmm_validate_code]
+
+            # stores the LENGTH of errors
+            fmm_errors = len(list(fmm_analysis.values())[fmm_validate_code])
+            bmm_errors = len(list(bmm_analysis.values())[bmm_validate_code])
+
+            # if fmm len smaller, return that
+            if fmm_errors < bmm_errors:
+                raise error_code(error_return(list(fmm_analysis.values())[fmm_validate_code]))
+            else:
+                raise error_code(error_return(list(bmm_analysis.values())[bmm_validate_code]))
+    
+    # (2) only one is good
+    elif fmm_validate_code != 0:
+        return bmm_seg_passage
+    elif bmm_validate_code != 0:
+        return fmm_seg_passage
+    # (3) both are good
     else:
-        fmm_analysis = validate_seg(frontier_min, frontier_max, hsk_dict, fmm_seg_passage)
-        bmm_analysis = validate_seg(frontier_min, frontier_max, hsk_dict, bmm_seg_passage)
-
-
-    # 3) BiMM decision: 
-
-    # Three cases:
-    # (1) neither passage passed both tests:
-        # if neither passed NotEncountered, report one with lower
-        # otherwise report one with higher Frontier Words
-        # RETURN TO CLAUDE
-    # (2) only one passage passed -> return that one
-    # (3) both passages passed -> return BMM
-
-    # if NEITHER fulfills both, send back to Claude
-    return 0
+        return bmm_seg_passage      # default return BMM (for now)
 
 
 # takes valid segmented passage and produces pinyin answer key
@@ -150,30 +169,40 @@ def validate_seg(
         frontier_min : int,
         frontier_max : int,
         hsk_dict : dict,
-        seg_passage : list[str]
+        seg_passage : list[str],
+        unknown_chars : list[str]
 ):
-    # instantiate the two dicts:
+    # instantiate dict w/ empty fields, assumed valid at start
     seg_analysis = {
-        "is_valid" : True,
-        "num_frontier" : 0,
-        "not_encountered" : []
+        "is_valid" : 0,
+        "halluc_words" : [],
+        "not_encountered" : [],
+        "frontier_words" : []
     }
 
-    # parse word by word, increment frontier # and keep track of 
+    # 1) check hallucinations
+    if len(unknown_chars):
+        seg_analysis["halluc_words"] = unknown_chars
+        seg_analysis["is_valid"] = ValidationCode.HALLUC_ERROR
+        return seg_analysis
+
+    # 2) iterate for not-encountered & frountier
     for word in seg_passage:
-        # if not encountered, flag and keep going
+        # not encountered word => immediately flag to 2
         if word not in hsk_dict:
             seg_analysis["not_encountered"].append(word)
-            seg_analysis["is_valid"] = False 
-        # otherwise, check if frontier
-        else:
-            if hsk_dict[word] == True:
-                seg_analysis["num_frontier"] += 1
+            seg_analysis["is_valid"] = ValidationCode.NOT_ENCOUNTERED_ERROR
+        # check frontier
+        elif hsk_dict[word] == True:
+            seg_analysis["frontier_words"].append(word)
 
-    # if is_valid is still True (all words encountered), check frontier
-    if seg_analysis["is_valid"]:
-        seg_analysis["is_valid"] = seg_analysis["num_frontier"] >= frontier_min and seg_analysis["num_frontier"] <= frontier_max
-    
+    # if not-encountered words found ANYWHERE, return that
+    if seg_analysis["is_valid"] == ValidationCode.NOT_ENCOUNTERED_ERROR:
+        return seg_analysis
+
+    # otherwise, evaluate frontier
+    if len(seg_analysis["frontier_words"]) not in range(frontier_min, frontier_max + 1):
+        seg_analysis["is_valid"] = ValidationCode.FRONTIER_ERROR
     return seg_analysis
 
 
