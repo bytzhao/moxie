@@ -14,14 +14,9 @@ In case of any ERROR - (1) hallucination, (2) not-allowed words used, or (3) fro
     - Returns with list of hallucinated words, not-allowed words used, and frontier/new counts for re-prompting.
 """
 
-"""
-# loads entire HSK 3.0 txt into O(1) navigatable list (tupling chars with pinyin )
-# from /data/hsk_vocab.py import HSK_VOCAB, exists, pinyin_readings
-#from pathlib import Path
-#DATA_PATH = Path(__file__).parent.parent / "data" / "hsk_vocab.py"
-#from DATA_PATH import HSK_VOCAB, exists, pinyin_readings
-# -------------------
-# loads poly chars file into O(1) navigatable list (tupling chars to pinyin representations) 
+from pathlib import Path
+
+# loads poly chars file into dict (char->pinyin tuple)
 def _load_polyphonic_chars(path):
     chars = {}
     with open(path, encoding="utf-8") as f:
@@ -29,7 +24,7 @@ def _load_polyphonic_chars(path):
             line = line.rstrip("\n")
             if not line:
                 continue
-            # split actual char w/ pinyin reps (still coupled as one string)
+            # split actual char w/ pinyin reps by splitting across the tab 
             char, pinyins = line.split("\t")
             # make new pair in dictionary for new key = char, value = tuple of the pinyins SEPARATED NOW
             chars[char] = tuple(pinyins.split(","))
@@ -37,9 +32,9 @@ def _load_polyphonic_chars(path):
             
 
 # characters tupled of all pinyin readings (tone: 1-4, 0 for the static/neutral tone)
-POLYPHONIC_CHARS = _load_polyphonic_chars("data/polychars.txt")
+POLY_TXT_PATH = Path(__file__).parent.parent / "data" / "polychars.txt"
+POLY_CHARS = _load_polyphonic_chars(POLY_TXT_PATH)
 
-"""
 
 import regex
 from enum import IntEnum
@@ -153,8 +148,8 @@ def bimm(
 
 # takes valid segmented passage and produces pinyin answer key
 def gen_pinyin(
-        seg_passage : list,                 # segmented passage (list of strings)
-        poly_chars : list,                  # imported polychars as dict (chars -> tuples of pinyin)
+        seg_passage : list[str],            # segmented passage (list of strings)
+        poly_chars : list=POLY_CHARS,       # imported polychars as dict (chars -> tuples of pinyin)
         hsk_pinyin_list : dict=HSK_VOCAB    # dict (chars to pinyin map)
 ):
     return 0
