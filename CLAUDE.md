@@ -5,7 +5,7 @@
 Written for:
 **Product Phase:** 1 - PoC prototype
 **PRD Version:** 0.3
-**Date:** September 4th, 2026
+**Date:** September 19th, 2026
 
 ## I. Project Overview
 Moxie 1.0 is a Claude-enabled Mandarin decoding-fluency trainer designed to prompt the user with challenging texts. These are produced by taking into account their literacy level, which is gauged from their vocabulary arsenal, grammatical and syntactical maturity, rhetorical understanding, etc. While the desire is eventually to mature Moxie into an all-rounded language trainer that tests comprehension through translation as well, the first phase is solely concerned with the decoding of Chinese characters into pinyin. 
@@ -24,7 +24,13 @@ The following should carve the distinction between where Claude can go ahead and
 2. FASTAPI route: boilerplate, but I SHOULD STILL WRITE IT. 
 3. pip installing, starting the FastAPI dev server, creating SQLite tables => these sorts of tasks that are not implementation but rather scaffolding and environment preparation are STILL IMPORTANT TO ME. However, these can be treated more "tutorial style" and Claude should provide the syntax bite by bite while also explaining the structural things that are happening (i.e. what happens when we actually create a SQLite table in the hardware).
 4. Seeding a static HSK dictionary using an external GitHub repo: contains syntactical quirks that I should know, but as a task is not algorithmically nor fundamentally (as in important to the functionality of a website in general) significant enough such that I would have to HAND WRITE EVERYTHING.
-5. Writing tests (e.g. pytest functions for segmenter.py, API routes, DB queries): I write these myself, since testing directly exercises the Python data-structure fluency I'm trying to build. HOWEVER, I have zero prior experience writing tests, so treat this like item 3 (tutorial style) rather than item 1 — Claude should walk me through pytest conventions bite by bite (test discovery, assert statements, fixtures, etc.) as I write them, rather than assuming I already know the pattern.
+5. Writing tests (e.g. pytest functions for segmenter.py, API routes, DB queries): I write these myself, since testing directly exercises the Python data-structure fluency I'm trying to build. HOWEVER, I have zero prior experience writing tests, so treat this like item 3 (tutorial style) rather than item 1 — Claude should walk me through pytest conventions bite by bite (test discovery, assert statements, fixtures, parametrize, etc.) as I write them, rather than assuming I already know the pattern.
+
+    **5a. Test DATA vs. test ORACLES — this split is deliberate, follow it exactly:**
+    - **Test structure** (the `def test_...` function itself: arrange/act/assert shape, `@pytest.mark.parametrize` tables, fixtures, `pytest.raises` blocks): I write this. Tutorial style per item 5 above.
+    - **Raw test input data** (passage strings, toy HSK dicts, frontier bounds — the "arrange" content itself) is item-4-tier: tedious, not algorithmically significant. Claude MAY generate these directly, but ONLY against an explicit scenario spec I give (e.g. "4 cases: one hallucination error, one frontier-under-min, one FMM/BMM tie-break"). Claude should not invent which scenarios matter — I decide the taxonomy of what to test.
+    - **Expected/oracle values** (the hard-coded `expected` a test asserts against) are NEVER Claude-generated. I compute these myself by hand-tracing the actual algorithm (fmm/bmm/validate_seg/etc.) against the given input. Reason: Claude inferring "what the algorithm should output" is not an independent check — it risks encoding Claude's guess about the implementation rather than the spec, which defeats the purpose of the test and duplicates whatever's already wrong in the code. It's also the exact line-by-line algorithm-tracing skill I'm trying to build (see Section V, goal 2).
+    - If I get stuck computing an expected value by hand, treat it as a debugging/logic-review question: Socratic, leading questions per the debugging rules below — not a direct answer — unless I say "just tell me."
 
 In the scenarios classified under "I write the code", I will often still rely on Claude for syntactical/conceptual guidance. I will try my best to, for the sake of my learning like any good student, I will ask either conceptual questions or pointed, concrete questions regarding implementation. For example, "explain the entities involved in the API call for a general POST HTTP request, from frontend to backend." Or, "I am trying to [insert concrete task]. What is the syntax for writing [X] to a dictionary?"
 
