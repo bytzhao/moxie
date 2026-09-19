@@ -306,13 +306,13 @@ def bmm(
         # if word was found somewhere
         if word_is_found:
             # add it
-            seg_passage.append(poss_word)
+            seg_passage.insert(0, poss_word)
     
             # move to next by skipping all chars in this word
             current_char = current_char - num_chars
         else:
             # mark as unknown
-            unknown_chars.append(poss_word)
+            unknown_chars.insert(0, poss_word)
     
             # move to next by incrementing by 1
             current_char = current_char - 1
