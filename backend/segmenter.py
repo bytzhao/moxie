@@ -187,8 +187,9 @@ def validate_seg(
         if word not in hsk_dict:
             seg_analysis["not_encountered"].append(word)
             seg_analysis["is_valid"] = ValidationCode.NOT_ENCOUNTERED_ERROR
-        # check frontier
-        elif hsk_dict[word] == True:
+
+        # check frontier (NO DOUBLE COUNT!)
+        elif hsk_dict[word] == True and hsk_dict[word] not in seg_analysis["frontier_words"]:
             seg_analysis["frontier_words"].append(word)
 
     # if not-encountered words found ANYWHERE, return that
