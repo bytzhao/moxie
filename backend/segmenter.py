@@ -84,10 +84,12 @@ MAX_WORD_LEN = max(len(w) for w in HSK_VOCAB)
 # Entry Point
 # --------------------
 def bimm(
-        passage : str,          # the raw passage - including all punctuation
-        hsk_dict : dict,        # all ENCOUNTERED words mapped to frontier or not (NO pinyin - use static)
-        frontier_min : int,     # min frontier words acceptable in passage
-        frontier_max : int      # max frontier words acceptable in pasage
+        passage : str,                  # the raw passage - including all punctuation
+        hsk_dict : dict,                # all ENCOUNTERED words mapped to frontier or not (NO pinyin - use static)
+        frontier_min : int,             # min frontier words acceptable in passage
+        frontier_max : int,             # max frontier words acceptable in pasage
+        whole_hsk : dict=HSK_VOCAB,     # pass down to fmm/bmm - if bimm() module testing doesn't specify otherwise, is same as before
+        max_word_len : int=MAX_WORD_LEN # pass down to fmm/bmm
 ):
     # 1) FMM & BMM Segmentation
     # extract only chinese chars from the given passage
@@ -99,8 +101,8 @@ def bimm(
     passage_len = len(trim_passage)
 
     # conduct FMM and BMM
-    fmm_seg_passage, fmm_unknown = fmm(trim_passage, passage_len)
-    bmm_seg_passage, bmm_unknown = bmm(trim_passage, passage_len)
+    fmm_seg_passage, fmm_unknown = fmm(trim_passage, passage_len, whole_hsk, max_word_len)
+    bmm_seg_passage, bmm_unknown = bmm(trim_passage, passage_len, whole_hsk, max_word_len)
     
     # 2) Validation
     fmm_analysis = validate_seg(frontier_min, frontier_max, hsk_dict, fmm_seg_passage, fmm_unknown)
@@ -129,7 +131,7 @@ def bimm(
             # stores the LENGTH of errors
             fmm_errors = len(list(fmm_analysis.values())[fmm_validate_code])
             bmm_errors = len(list(bmm_analysis.values())[bmm_validate_code])
-
+            
             # if fmm len smaller, return that
             if fmm_errors < bmm_errors:
                 raise error_code(error_return(list(fmm_analysis.values())[fmm_validate_code]))
@@ -206,8 +208,8 @@ def validate_seg(
 def fmm(
     passage : str,
     passage_len : int,
-    hsk_list : dict = HSK_VOCAB,                    # static imported dict from txt
-    max_word_len : int = MAX_WORD_LEN               # static max length of entire HSK
+    hsk_list : dict,
+    max_word_len : int
 ):
     current_char = 0        # pointer to char where currently evaluating next longest word
     seg_passage = []        # list of individual word strings
@@ -266,8 +268,8 @@ def fmm(
 def bmm(
     passage : str,
     passage_len : int,
-    hsk_list : dict = HSK_VOCAB,
-    max_word_len : int = MAX_WORD_LEN
+    hsk_list : dict,
+    max_word_len : int
 ):
     current_char = passage_len - 1      # pointer to char where currently evaluating next longest word
     seg_passage = []                    # list of individual word strings
