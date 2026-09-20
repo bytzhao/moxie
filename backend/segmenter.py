@@ -183,10 +183,10 @@ def validate_seg(
         seg_analysis["is_valid"] = ValidationCode.HALLUC_ERROR
         return seg_analysis
 
-    # 2) iterate for not-encountered & frountier
+    # 2) iterate for not-encountered & frontier
     for word in seg_passage:
-        # not encountered word => immediately flag to 2
-        if word not in hsk_dict:
+        # not encountered word (NO DOUBLE COUNT)=> immediately flag to 2
+        if word not in hsk_dict and word not in seg_analysis["not_encountered"]:
             seg_analysis["not_encountered"].append(word)
             seg_analysis["is_valid"] = ValidationCode.NOT_ENCOUNTERED_ERROR
 
