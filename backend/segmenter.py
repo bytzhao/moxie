@@ -62,17 +62,28 @@ class FrontierWordsCountError(Exception):
         super().__init__(message)
         self.num_frontier_words = num_frontier_words
 
+
 class ValidationCode(IntEnum):
     VALID_PASSAGE = 0
     HALLUC_ERROR = 1
     NOT_ENCOUNTERED_ERROR = 2
     FRONTIER_ERROR = 3
 
+
 ERROR_TABLE = {
     ValidationCode.HALLUC_ERROR: (HallucinatedWordsError, lambda x: x),
     ValidationCode.NOT_ENCOUNTERED_ERROR: (NotEncounteredWordsError, lambda x: x),
     ValidationCode.FRONTIER_ERROR: (FrontierWordsCountError, len)
 }
+
+
+# needs to pass back (1) poly list mapped to possible pinyin (tupled) and (2) partial-pinyin passage
+class PolyPinyinWordError(Exception):
+    def __init__(self, poly_list, partial_pinyin_passage, message="Chars/words w/ obscure (multiple) pinyins in passage need to be resolved."):
+        super().__init__(message)
+        self.poly_list = poly_list
+        self.partial_pinyin_passage = partial_pinyin_passage
+
 
 # import entire HSK dict (word to pinyin readings tuple) & helpers
 from data.hsk_vocab import HSK_VOCAB, exists, pinyin_readings
@@ -151,10 +162,37 @@ def bimm(
 # takes valid segmented passage and produces pinyin answer key
 def gen_pinyin(
         seg_passage : list[str],            # segmented passage (list of strings)
-        poly_chars : list=POLY_CHARS,       # imported polychars as dict (chars -> tuples of pinyin)
-        hsk_pinyin_list : dict=HSK_VOCAB    # dict (chars to pinyin map)
+        poly_chars : dict=POLY_CHARS,       # imported polychars as dict (chars -> tuples of pinyin)
+        hsk_pinyin_list : dict=HSK_VOCAB    # dict (chars to HskEntry tuple object)
 ):
-    return 0
+    # dict (list of polychars->pinyin tuples):
+    poly_list = {}
+
+    # segmented pinyin list
+    seg_passage_pinyin = []
+
+    # iterate through the list of strings
+    for word in seg_passage:
+        # if it's a polychar, add to poly (IF NOT ALREADY) + denote empty pinyin
+        if word in poly_chars and word not in poly_list:
+            poly_list[word] = poly_chars[word]
+            seg_passage_pinyin.append(None)
+
+        # also, if it's a poly-word (more than 1 DISTINCT reading in COMPLETE list), add
+        elif len(set(pinyin_readings(word, hsk_pinyin_list))) > 1 and word not in poly_list:
+        # len(hsk_pinyin_list[word]) > 1 and list(hsk_pinyin_list[word])[0].pinyin != list(hsk_pinyin_list[word])[1].pinyin and word not in poly_list:
+            poly_list[word] = pinyin_readings(word, hsk_pinyin_list)
+            seg_passage_pinyin.append(None)
+
+        # otherwise, we can safely write pinyin
+        else:
+            seg_passage_pinyin.append(pinyin_readings(word, hsk_pinyin_list)[0])
+
+    # if poly-list HAS chars/words, return (1) poly list and (2) partial pinyin built
+    if len(poly_list) > 0:
+        raise PolyPinyinWordError(poly_list, seg_passage_pinyin)
+    
+    return seg_passage_pinyin
 
 
 # ---------------------
