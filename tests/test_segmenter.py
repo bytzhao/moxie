@@ -5,7 +5,7 @@ To Test:
 """
 
 import pytest
-from backend.segmenter import bimm, gen_pinyin, HallucinatedWordsError, NotEncounteredWordsError, FrontierWordsCountError, PolyPinyinWordError
+from backend.segmenter import bimm, gen_pinyin, seg_val_pinyin, HallucinatedWordsError, NotEncounteredWordsError, FrontierWordsCountError, PolyPinyinWordError
 from data.hsk_vocab import HskEntry
 
 
@@ -175,3 +175,88 @@ def test_pinyin_gen_all_around(seg_passage, poly_chars, hsk_pinyin, expected, ex
         assert pinyin_error.value.partial_pinyin_passage == expected
     else:
         assert gen_pinyin(seg_passage, poly_chars, hsk_pinyin) == expected
+
+
+# ---------------
+# Full Pipeline (seg_val_pinyin)
+# ---------------
+# NOTE: seg_val_pinyin() does not expose whole_hsk/max_word_len/poly_chars/hsk_pinyin_list
+# overrides — it always calls bimm()/gen_pinyin() with their real static-data defaults
+# (HSK_VOCAB from data/hsk30.txt, POLY_CHARS from data/polychars.txt). So unlike the
+# scenario dicts above, every word below is a REAL entry in those files — verified against
+# the actual data by running seg_val_pinyin() directly before writing this in.
+# A) Testing Scenarios
+
+# --- Scenario 1: full pass, seg and pinyin (all real HSK words, none polyphonic) ---
+passage_1 = "我是学生。我认识老师。今天我很高兴。"
+hsk_encountered_dict_1 = {
+    "我": False, "是": False, "学生": False, "认识": False,
+    "老师": False, "今天": False, "很": False, "高兴": False,
+}
+frontier_min_1, frontier_max_1 = 0, 8
+expected_1 = {
+    "我" : "wo3",
+    "是" : "shi4",
+    "学生" : "xue2sheng1",
+    "认识" : "ren4shi0",
+    "老师" : "lao3shi1",
+    "今天" : "jin1tian1",
+    "我" : "wo3",
+    "很" : "hen3",
+    "高兴" : "gao1xing4"
+}
+exception_1 = None
+
+# --- Scenario 2: hallucinated word in seg ("甭" is not in HSK_VOCAB at any length) ---
+passage_2 = "我甭是学生。"
+hsk_encountered_dict_2 = {"我": False, "是": False, "学生": False}
+frontier_min_2, frontier_max_2 = 0, 5
+# TODO: test_seg_val_pinyin_hallucinated — act + pytest.raises(???)
+expected_2 = None
+exception_2 = HallucinatedWordsError
+
+# --- Scenario 3: not-encountered word in seg ("学生" is real HSK, but left out of hsk_encountered_dict) ---
+passage_3 = "我是学生。我认识老师。"
+hsk_encountered_dict_3 = {"我": False, "是": False, "认识": False, "老师": False}
+frontier_min_3, frontier_max_3 = 0, 5
+# TODO: test_seg_val_pinyin_not_encountered — act + pytest.raises(???)
+expected_3 = None
+exception_3 = NotEncounteredWordsError
+
+# --- Scenario 4: frontier word count mismatch (all words known/encountered, but frontier range is impossible) ---
+passage_4 = "我是学生。我认识老师。"
+hsk_encountered_dict_4 = {"我": True, "是": False, "学生": False, "认识": False, "老师": False}
+frontier_min_4, frontier_max_4 = 50, 60
+# TODO: test_seg_val_pinyin_frontier_mismatch — act + pytest.raises(???)
+expected_4 = None
+exception_4 = FrontierWordsCountError
+
+# --- Scenario 5: seg + validation all pass, but pinyin is arbitrary ("好" = hao3 Adj/Adv vs. hao4 V; also in polychars.txt) ---
+passage_5 = "我很好。我是学生。"
+hsk_encountered_dict_5 = {"我": False, "很": False, "好": False, "是": False, "学生": False}
+frontier_min_5, frontier_max_5 = 0, 8
+# TODO: test_seg_val_pinyin_poly_pinyin — act + pytest.raises(???)
+expected_5 = None
+exception_5 = PolyPinyinWordError
+
+
+# B) Parametrization
+# TODO: build the @pytest.mark.parametrize table yourself, same shape as the two sections above
+@pytest.mark.parametrize("passage, hsk_encountered, f_min, f_max, expected, exception", [
+    pytest.param(passage_1, hsk_encountered_dict_1, frontier_min_1, frontier_max_1, expected_1, exception_1),
+    pytest.param(passage_2, hsk_encountered_dict_2, frontier_min_2, frontier_max_2, expected_2, exception_2),
+    pytest.param(passage_3, hsk_encountered_dict_3, frontier_min_3, frontier_max_3, expected_3, exception_3),
+    pytest.param(passage_4, hsk_encountered_dict_4, frontier_min_4, frontier_max_4, expected_4, exception_4),
+    pytest.param(passage_5, hsk_encountered_dict_5, frontier_min_5, frontier_max_5, expected_5, exception_5)
+])
+
+# C) Function Call
+# TODO: write test_seg_val_pinyin_all_around yourself — act via seg_val_pinyin(passage,
+# hsk_encountered_dict, frontier_min, frontier_max), branch on exception is None like
+# test_bimm_all_around / test_pinyin_gen_all_around above
+def test_entire_pipe(passage, hsk_encountered, f_min, f_max, expected, exception):
+    if exception is not None:
+        with pytest.raises(exception):
+            seg_val_pinyin(passage, hsk_encountered, f_min, f_max)
+    else:
+        assert seg_val_pinyin(passage, hsk_encountered, f_min, f_max) == expected
