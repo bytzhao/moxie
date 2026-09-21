@@ -86,10 +86,29 @@ class PolyPinyinWordError(Exception):
 
 
 # import entire HSK dict (word to pinyin readings tuple) & helpers
-from data.hsk_vocab import HSK_VOCAB, exists, pinyin_readings
+from data.hsk_vocab import HSK_VOCAB, pinyin_readings
+MAX_WORD_LEN = max(len(w) for w in HSK_VOCAB)          # static max length of all HSK 3.0 words
 
-# static max length of all HSK 3.0 words
-MAX_WORD_LEN = max(len(w) for w in HSK_VOCAB)
+
+# --------------------
+# Main Pipeline
+# -------------------
+def seg_val_pinyin(
+        claude_passage : str,
+        hsk_encountered_dict : dict,
+        frontier_min : int,
+        frontier_max : int
+): 
+    # 1) BiMM
+    seg_passage = bimm(claude_passage, hsk_encountered_dict, frontier_min, frontier_max)
+
+    # 2) Pinyin Generation
+    pinyin_passage = gen_pinyin(seg_passage)
+
+    # 3) Final Dict Compilation
+    seg_pinyin_passage = dict(zip(seg_passage, pinyin_passage))
+    return seg_pinyin_passage
+
 
 # --------------------
 # Entry Point
@@ -165,8 +184,9 @@ def gen_pinyin(
         poly_chars : dict=POLY_CHARS,       # imported polychars as dict (chars -> tuples of pinyin)
         hsk_pinyin_list : dict=HSK_VOCAB    # dict (chars to HskEntry tuple object)
 ):
-    # dict (list of polychars->pinyin tuples):
-    poly_list = {}
+    # dict (position->char/word, pinyin readings):
+    poly_words: dict[str, tuple] = {}
+    position = 0        # starting at 0, aligned with seg passage list
 
     # segmented pinyin list
     seg_passage_pinyin = []
@@ -174,23 +194,25 @@ def gen_pinyin(
     # iterate through the list of strings
     for word in seg_passage:
         # if it's a polychar, add to poly (IF NOT ALREADY) + denote empty pinyin
-        if word in poly_chars and word not in poly_list:
-            poly_list[word] = poly_chars[word]
+        if word in poly_chars:
+            poly_words[position] = word, poly_chars[word]
             seg_passage_pinyin.append(None)
 
         # also, if it's a poly-word (more than 1 DISTINCT reading in COMPLETE list), add
-        elif len(set(pinyin_readings(word, hsk_pinyin_list))) > 1 and word not in poly_list:
-        # len(hsk_pinyin_list[word]) > 1 and list(hsk_pinyin_list[word])[0].pinyin != list(hsk_pinyin_list[word])[1].pinyin and word not in poly_list:
-            poly_list[word] = pinyin_readings(word, hsk_pinyin_list)
+        elif len(set(pinyin_readings(word, hsk_pinyin_list))) > 1:
+            poly_words[position] = word, pinyin_readings(word, hsk_pinyin_list)
             seg_passage_pinyin.append(None)
 
         # otherwise, we can safely write pinyin
         else:
             seg_passage_pinyin.append(pinyin_readings(word, hsk_pinyin_list)[0])
 
+        # increment the position
+        position += 1
+
     # if poly-list HAS chars/words, return (1) poly list and (2) partial pinyin built
-    if len(poly_list) > 0:
-        raise PolyPinyinWordError(poly_list, seg_passage_pinyin)
+    if len(poly_words) > 0:
+        raise PolyPinyinWordError(poly_words, seg_passage_pinyin)
     
     return seg_passage_pinyin
 
@@ -209,7 +231,7 @@ def validate_seg(
 ):
     # instantiate dict w/ empty fields, assumed valid at start
     seg_analysis = {
-        "is_valid" : 0,
+        "is_valid" : ValidationCode.VALID_PASSAGE,
         "halluc_words" : [],
         "not_encountered" : [],
         "frontier_words" : []
