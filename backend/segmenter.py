@@ -63,6 +63,20 @@ class FrontierWordsCountError(Exception):
         self.num_frontier_words = num_frontier_words
 
 
+class PolyPinyinWordError(Exception):
+    """Exception raised when passage includes chars/words with multiple pinyin readings, requiring further Claude clarification.
+    Returns: 
+        1. dictionary of polyphonic chars/words present, mapping position to char/word tupled with all valid pinyin readings
+        2. fully segmented Mandarin passage
+        3. partial pinyin-generated passage
+        """
+    def __init__(self, poly_words, seg_passage, partial_pinyin_passage, message="Chars/words w/ obscure (multiple) pinyins in passage need to be resolved."):
+        super().__init__(message)
+        self.poly_words = poly_words
+        self.seg_passage = seg_passage
+        self.partial_pinyin_passage = partial_pinyin_passage
+
+
 class ValidationCode(IntEnum):
     VALID_PASSAGE = 0
     HALLUC_ERROR = 1
@@ -77,16 +91,6 @@ ERROR_TABLE = {
 }
 
 
-# needs to pass back (1) poly list mapped to possible pinyin (tupled) and (2) partial-pinyin passage
-class PolyPinyinWordError(Exception):
-    def __init__(self, poly_list, partial_pinyin_passage, message="Chars/words w/ obscure (multiple) pinyins in passage need to be resolved."):
-        super().__init__(message)
-        self.poly_list = poly_list
-        self.partial_pinyin_passage = partial_pinyin_passage
-
-
-# import entire HSK dict (word to pinyin readings tuple) & helpers
-from data.hsk_vocab import HSK_VOCAB, pinyin_readings
 MAX_WORD_LEN = max(len(w) for w in HSK_VOCAB)          # static max length of all HSK 3.0 words
 
 
@@ -105,9 +109,8 @@ def seg_val_pinyin(
     # 2) Pinyin Generation
     pinyin_passage = gen_pinyin(seg_passage)
 
-    # 3) Final Dict Compilation
-    seg_pinyin_passage = dict(zip(seg_passage, pinyin_passage))
-    return seg_pinyin_passage
+    # 3) Return
+    return seg_passage, pinyin_passage
 
 
 # --------------------
@@ -212,7 +215,7 @@ def gen_pinyin(
 
     # if poly-list HAS chars/words, return (1) poly list and (2) partial pinyin built
     if len(poly_words) > 0:
-        raise PolyPinyinWordError(poly_words, seg_passage_pinyin)
+        raise PolyPinyinWordError(poly_words, seg_passage, seg_passage_pinyin)
     
     return seg_passage_pinyin
 
