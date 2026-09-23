@@ -1,23 +1,25 @@
-# FUNCTIONALITY: Loads data/hsk30.txt (built by prepare_hsk30.py) => Python dict once, 
 """
-1. Fast existence checks and pinyin lookup against the HSK 3.0 vocabulary list.
-2. Dict maps Mandarin word strings to TUPLES of pinyin readings
-    - to accomodate words w/ multiple valid readings in different contexts
-3. One line per word, readings packed onto it as "pinyin:level:pos:traditional" joined
-# by ";" - same shape as backend/segmenter.py's POLYPHONIC_CHARS, just with
-# structured fields per reading instead of a bare pinyin string.
+hsk_vocab.py - facilitates access to a static HSK 3.0 vocabulary list.
+
+Functionality:
+    1. Fast existence checks and pinyin lookup against the HSK 3.0 vocabulary list.
+    2. Dict maps Mandarin word strings to custom HskEntrys, tupling pinyin readings with position, HSK 
+    level and traditional characters.
+    3. One line per word, readings packed onto it as "pinyin:level:pos:traditional" joined 
+    by ";" - same shape as backend/segmenter.py's POLYPHONIC_CHARS, just with structured 
+    fields per reading instead of a bare pinyin string.
 """
 
-from collections import namedtuple
+from collections import Counter, namedtuple
 from pathlib import Path
-
-from collections import Counter
 
 HskEntry = namedtuple("HskEntry", "pinyin level pos traditional")
 
-
-# reads txt into full HSK (word->tuple of pinyin readings) dict
+# ---------------------------
+# HSK Dictionary Loading
+# ---------------------------
 def _load_hsk_vocab(path):
+    """Reads data/hsk30.txt into a Python dictionary."""
     vocab = {}
     with open(path, encoding="utf-8") as f:
         for line in f:
@@ -26,12 +28,13 @@ def _load_hsk_vocab(path):
                 continue
             word, readings = line.split("\t")
             vocab[word] = tuple(
+                # keys (words) map to tupled HskEntrys, which are themselves tuples
+                # multiple HskEntrys = (1) different pinyin or (2) different pos (V vs. N) & level
                 HskEntry(*reading.split(":")) for reading in readings.split(";")
             )
     return vocab
 
-# generate HSK dictionary from txt using above
-# need to define path explicitly, since running w/ CWD = potential FileNotFoundError
+# actual generation - path explicitly defined (running w/ CWD = potential FileNotFound)
 HSK_TXT_PATH = Path(__file__).parent / "hsk30.txt"  
 HSK_VOCAB = _load_hsk_vocab(HSK_TXT_PATH)
 
@@ -39,19 +42,18 @@ HSK_VOCAB = _load_hsk_vocab(HSK_TXT_PATH)
 # ---------------------------
 # Helpers
 # ---------------------------
-# returns T/F if word exists or not in dict
 def exists(word):
+    """Checks for existence of a Mandarin string in the dictionary."""
     return word in HSK_VOCAB
 
 
-# returns tuple of pinyin strings for a given HSK word
-def pinyin_readings(word):
-    """All numbered-pinyin readings for a word, or () if not in the list."""
-    return tuple(entry.pinyin for entry in HSK_VOCAB.get(word, ()))
+def pinyin_readings(word, pinyin_dict):
+    """All numbered-pinyin readings as tuple, or () if not in the list. Dictionary is also passed in."""
+    return tuple(entry.pinyin for entry in pinyin_dict.get(word, ()))
 
 
-# independently tests for duplicate word values in the hsk txt file
 def check_hsk_duplicates():
+    """Independently tests for duplicate word values in hsk30.txt file."""
     # extract all of the words in the txt file
     words = []
     with open(HSK_TXT_PATH, encoding="utf-8") as hsk:
@@ -64,11 +66,12 @@ def check_hsk_duplicates():
 
     # log duplicates (take all elements in counts dict IF counts > 1)
     duplicates = {key: count for key, count in counts.items() if count > 1}
-    for word in duplicates:
-        print("word: " + word)
+
+    return duplicates
+
 
 def dict_equals_txt():
-
+    """Checks that the dictionary hasn't overwritten keys by validating # of lines against text file."""
     # compute num of unique words in txt file
     txt_word_count = 0
     with open(HSK_TXT_PATH, encoding="utf-8") as hsk:
@@ -80,13 +83,3 @@ def dict_equals_txt():
 
     # if num is equal to actual dict, it's good
     return len(HSK_VOCAB) == txt_word_count
-    
-
-
-
-
-def main():
-    print(dict_equals_txt())
-
-if __name__ == "__main__":
-    main()
