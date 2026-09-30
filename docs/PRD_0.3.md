@@ -8,6 +8,11 @@
 - September 15th, 2026: removed func-word allow-list as Phase 1 priority:
     - Essentially all are already in the HSK 3.0 vocabulary list (static file `data/hsk30.txt`).
     - Tracking elementary users' grasp of function words is not important at this phase since Moxie is still for personal use primarily.
+- September 29th, 2026: locked down grading-pipeline internals and Results Page rendering, following a CSM/Levenshtein architecture discussion:
+    - Results Page (Section VI.3) now explicitly renders both the PRS and the answer key, character-colored, so the user can visually cross-reference mistakes against the correct decoding.
+    - `POST /api/grade` (Section XIII) now also returns the answer key post-grading - consistent with, not a reversal of, the existing "answer keys stay server-side until grading" decision (Section XIX).
+    - `levenshtein.py` split out of `grading.py` as its own file (Section XIV); `grading.py` is now the orchestrating layer only, mirroring the existing `generation.py`/`segmenter.py` split.
+
 
 ## I. Content & Objectives
 Broadly, the purpose of Moxie is two-fold:
@@ -69,6 +74,7 @@ Moxie 1.0 carries three screens the user interacts with, listed below:
     - The passage is rendered with no spaces as appropriate and consistent with conventional Mandarin texts
     - The ULS is automatically generated when the user presses "Submit"
 3. **Results Page:** informs user of PRS correctness following backend answer key analysis and CSM-facilitated AVD updates through color-coded character-by-character comparisons and a passage summary enumerating words tested and all promotions/demotions.
+    - Both the PRS and the answer key string will be shown, this time with spaces between vocab units. In this phase of development, the user's missed characters will simply be color-coded red while the correct characters are color-coded green. In the answer key, the corresponding, correct pinyins for each of the missed characters are highlighted in a third color (TBD), so the user can visually parse the text easily and remedy the errors.
     - An "Exit" button automaticlaly takes the user back to the FPG Initialization Page again, ending the session and mirroring the backend logic of the loop automaton.
 
 The following pages are relevant and helpful, but de-prioritized:
@@ -241,13 +247,14 @@ The Adaptive Vocabulary Database (AVD) is sourced from the 11,000 word long HSK 
 ## XIII. API Surface
 The application needs four primary API endpoints that facilitate the user's interaction with the backend:
 1. **FPG Loop:** `POST /api/fpg` (body: passage_length)
-    - upon user prompting, runs frontier vocab selection, calls + validats Claude, builds answer key
+    - upon user prompting, runs frontier vocab selection, calls + validates Claude, builds answer key
     - returns {passage_id, rendered_text, char_count}
     - answer key stays server-side, waiting for grading
 2. **Grading & Feedback Loop:** `POST /api/grade` (body: passage_id & user_pinyin)
     - prior to the start of the grading mechanism, a quick scan for length correctness is applied; a failure there 
     - upon user submission, runs alignment and grading, applies CSM updates to AVD
-    - returns per-character verdicts + promotion/demotions
+    - returns per-character verdicts + promotion/demotions summary
+    - answer key is also returned for the user's comparision benefit
     - passages grade once, so this endpoint only works once per passage
 3. **Health Sanity Check:** `GET /api/health`
     - trivially checks for API health
@@ -269,7 +276,8 @@ The repo layout is structured as follows:
     - `models.py` - bridges gap between Python classes and relational databases 
     - `llm.py` - facilitates calling Claude
     - `generation.py` - orchestrating layer for FPG
-    - `grading.py` - conducts all grading
+    - `grading.py` - broad orchestrator for entire grading pipeline
+    - `levenshtein.py` - conducts Levenshtein distance grading
     - `csm.py` - updates AVD using grading info
     - `segmenter.py` - segments Claude passages
 2. **`frontend/`:** contains all UI
