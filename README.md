@@ -1,7 +1,7 @@
 # Moxie
 ### A Claude-enabled Chinese literacy training platform.
 
-**Product Phase:** 1 - initial PoC prototype
+**Product Phase:** 1 - initial PoC prototype.
 --
 
 **Overview:** Moxie 1.0 is a Claude-enabled Mandarin decoding-fluency trainer designed to prompt the user with challenging texts. These are produced by taking into account their literacy level, which is gauged from their vocabulary arsenal, grammatical and syntactical maturity, rhetorical understanding, etc. While the desire is eventually to mature Moxie into an all-rounded language trainer that tests comprehension through translation as well, the first phase is solely concerned with the decoding of Chinese characters into pinyin. 
@@ -17,7 +17,7 @@
 **Remaining Build Roadmap** *(sequential; see PRD §XVI for milestone framing)*
 
 *Milestone 0 — grading + CSM loop, no LLM:*
-- `backend/grading.py`
+- `backend/levenshtein.py`
     - tone-strip + tonal-correctness check (severe if wrong)
     - retroflex/umlaut/nasal candidate-string generator (PRD §X.1)
     - keyboard-weighted Levenshtein distance vs. candidate set, slight/severe threshold classification
@@ -30,6 +30,9 @@
     - compound→character mirroring (demotion-only, exact-pinyin-match)
     - DB writes: `UserVocab` status/points/timestamp, `Appearances` rows (multi-char memory-score averaging)
     - tests
+- `backend/grading.py`
+    - main.py callee orchestrating Levenshtein distance grading and CSM
+    - entire grading pipeline tests
 - `backend/main.py`
     - `GET /api/health`
     - `POST /api/grade` (toy hardcoded passage + key, wired to grading.py + csm.py)
