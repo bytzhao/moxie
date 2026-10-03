@@ -12,7 +12,14 @@
     - Results Page (Section VI.3) now explicitly renders both the PRS and the answer key, character-colored, so the user can visually cross-reference mistakes against the correct decoding.
     - `POST /api/grade` (Section XIII) now also returns the answer key post-grading - consistent with, not a reversal of, the existing "answer keys stay server-side until grading" decision (Section XIX).
     - `levenshtein.py` split out of `grading.py` as its own file (Section XIV); `grading.py` is now the orchestrating layer only, mirroring the existing `generation.py`/`segmenter.py` split.
-
+- October 2nd, 2026: simplified Levenshtein distance computation sub-pipeline as follows:
+    - only one error is tagged and returned to the frontend following grading, therefore...
+        - combination strings of multiple of the slight errors are NOT considered. Only the 4 strings (original, and one per each of the slight errors) are compared against for distance.
+        - if a tone error exists, no further analysis is done.
+    - typos are not considered for chars w/ pinyin less than 4 characters (not including the tone mark)
+        - in these cases, simple equality is checked against the 4 strings. No Levenshtein distance computation is necessary and hence any real typos are treated as severe errors.
+    - matching is exact-match-first: the user's input is checked for equality against all 4 strings before any distance is computed. Only the *original* ever gets a real distance check (for typo, pinyin 4+ chars only, after all 4 equality checks fail) - the 3 slight-error variants are equality-only, never distance-matched.
+        - reasoning: an exact-match-first pass lets you conclude DEFINITIVELY that a given slight error was not made once its equality check fails. Allowing distance (not just equality) against the variants would be too lenient - it'd let a near-miss masquerade as a confirmed slight error instead of falling through to severe where it belongs.
 
 ## I. Content & Objectives
 Broadly, the purpose of Moxie is two-fold:
@@ -201,14 +208,16 @@ Under this framework, errors are evaluated under the 4 categories. If none flag,
 
 To check for slight errors, we use a custom Levenshtein distance algorithm to calculate typo confidence while taking into account the 3 non-typo errors:
 1. **Retroflex, Umlaut & Nasal Error String Generation:**
-    First, the tone is stripped from the *correct* pinyin representation of the character (before analysis even begins, a separate process checks for tonal correctless; if an error on that front is found, the error is already categorized as severe; however, further analysis is prudent to provide complete user feedback). 
+    First, the tone is stripped from the *correct* pinyin representation of the character (before analysis even begins, a separate process checks for tonal correctless; if an error on that front is found, the error is already categorized as severe. The rest of the analysis is NOT conducted. In future phases however, further analysis is prudent to provide complete user feedback). 
     
-    For each of the 3 slight errors, the correct pinyin is evaluated to see if they are genuinely possible errors (i.e. retroflux error is only possible when the first character is a consonant in set {'c', 's', 'z'}. Umlaut omission is only valid if following 'n' and 'l' consonants). The maximum number of possible error combinations is 8 (2^3) - depending on the pinyin, a certain number of strings, n, is generated (for n < 9). 
+    For each of the 3 slight errors, the correct pinyin is evaluated to see if they are genuinely possible errors (i.e. retroflux error is only possible when the first character is a consonant in set {'c', 's', 'z'}. Umlaut omission is only valid if following 'n' and 'l' consonants). The maximum number of possible error combinations is 8 (2^3). However, for the PoC we treat these cases as rare and hence only consider the four base possible strings containing these errors by themselves. 
 
-2. **Levenshtein Distance Analysis:**
-    The standard Levenshtein distance algorithm is applied on the user's input in comparison with all of the strings generated in (1). The string that minimizes the distance score is chosen, and if is under a threshold that qualifies the user's input as a typo, the appropriate non-typo errors are flagged. If the distance is indeed *nonzero*, the typo flag is also checked. Now that all the errors committed have been accounted for, the final slight/severe conclusion depends on whether a tonal error was flagged beforehand or not.
-    
-    Otherwise, a too-large distance categorizes the error as severe automatically. None of the slight errors apply.
+2. **Candidate Matching & Levenshtein Distance Analysis:**
+    The user's input is first checked for an *exact* match against each string generated in (1): the correct pinyin and the (up to 3) applicable slight-error variants. The three variant categories are categorical, not fuzzy - a hit requires equality, not closeness - so an exact match on a variant flags that error directly, with no distance computation involved.
+
+    If no exact match is found, and the pinyin is 4+ characters long (not including the tone digit), typo is tested - and only tested - against the original, correct pinyin. This is the one place real Levenshtein distance is computed: a small, nonzero distance under the typo threshold flags a typo; otherwise the error is severe. None of the slight errors apply once equality has already failed for all of them.
+
+    **NOTE:** for pinyin under 4 characters, typo is not considered at all - the exact-match step above is the entire test, and real distance computation is skipped entirely.
 
 Following a full parsing of the entire text character-by-character, the CSM system can then assign the appropriate promotions and demotions, detailed in the next section.
 
@@ -378,8 +387,8 @@ Each entry records what was decided, why, and what evidence would justify reopen
         - **Revisit if:** logs show a fifth category, or one of these is actually a knowledge gap.
     - ***Tone errors are severe.*** Reverses an earlier assumption that misses were minor: tone is a strength, so an error is real signal.
         - **Revisit if:** tone errors cluster on specific characters, looking like slips rather than gaps.
-    - ***Keyboard-weighted Levenshtein over an expanded candidate set, not distance-to-regex.*** Edit distance is string-to-string; matching a regex directly is harder. Three independent flags expand to at most eight candidates — compare each, take the minimum; the winner reveals which fired.
-        - **Revisit if:** the candidate set grows beyond enumerability.
+    - ***Keyboard-weighted Levenshtein scoped to the original string only; non-typo variants matched by equality, not distance.*** Edit distance is string-to-string; matching a regex directly is harder. Three independent flags originally suggested up to eight candidate combinations; PoC caps this at four (original plus one single-error string each) and drops combinations as too rare to justify the false-positive risk on pinyin this short. Of those four, the three error variants are exact-match only - they're categorical, not fuzzy - and real Levenshtein distance runs only against the original, scoped to typo detection, and only for pinyin 4+ characters (not counting tone).
+        - **Revisit if:** logged data shows combinations or typo-stacked-on-a-slight-error are common enough to be worth the added ambiguity, or the length floor proves miscalibrated in practice.
     - ***Streak-based tier promotion at 2 / 3 / 5.*** Consecutive correct decodes for Learning → Familiar → Solid → Mastered. Initial instinct, to be tuned from use.
         - **Revisit if:** a week of sessions shows the pacing is wrong. Expected to change.
     - ***Compound-to-character mirroring is asymmetric.*** Demotions propagate to the failing character; promotions don't. Recognizing in one context isn't evidence elsewhere; failing is.
