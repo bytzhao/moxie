@@ -20,6 +20,10 @@
         - in these cases, simple equality is checked against the 4 strings. No Levenshtein distance computation is necessary and hence any real typos are treated as severe errors.
     - matching is exact-match-first: the user's input is checked for equality against all 4 strings before any distance is computed. Only the *original* ever gets a real distance check (for typo, pinyin 4+ chars only, after all 4 equality checks fail) - the 3 slight-error variants are equality-only, never distance-matched.
         - reasoning: an exact-match-first pass lets you conclude DEFINITIVELY that a given slight error was not made once its equality check fails. Allowing distance (not just equality) against the variants would be too lenient - it'd let a near-miss masquerade as a confirmed slight error instead of falling through to severe where it belongs.
+- October 4th, 2026: finalized `calc_lev_dist`'s weighted edit-distance model (the real typo-vs-severe distance check described above, for pinyin 4+ chars):
+    - substitution cost is no longer flat; it's weighted by `ch_dist`, a normalized Euclidean distance between two letters' coordinates on a QWERTY grid with realistic ANSI row stagger (`QWERTY_COORDS`).
+    - added a transposition operation (Damerau-Levenshtein style: detects an adjacent swapped pair, costs it via `ch_dist` between the swapped keys) as a fourth candidate inside the same `min()` as insert/delete/substitute, rather than short-circuiting around them.
+    - typo/forgot classification now compares a length-normalized distance (`calc_lev_dist(...) / max(len(py), len(user_py))`) against `LEV_DIST_THRESHOLD`, currently set to `0.25` pending further empirical calibration against real typing data.
 
 ## I. Content & Objectives
 Broadly, the purpose of Moxie is two-fold:
