@@ -10,7 +10,7 @@ from enum import IntEnum
 from dataclasses import dataclass
 
 
-class PinyinErrors(IntEnum):
+class PinyinError(IntEnum):
     """Enumerates and classifies integer error types per character."""
     CORRECT = 0
 
@@ -32,4 +32,12 @@ class VocabUnit():
     vocab_id: int
     chars: tuple[str, ...]
     pinyin: tuple[str, ...]
-    error_type: tuple[PinyinErrors, ...]
+    error_type: tuple[PinyinError, ...]
+
+
+class StatusTier(IntEnum):
+    NOT_ENCOUNTERED = 0
+    LEARNING = 1
+    FAMILIAR = 2
+    SOLID = 3
+    MASTERED = 4

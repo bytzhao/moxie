@@ -3,18 +3,13 @@ from sqlalchemy import ForeignKey, PrimaryKeyConstraint, String
 from enum import Enum
 from datetime import datetime
 
+from backend.schemas import StatusTier
+
 # ORM Basics:
     # each ORM model is a Python class, representing a TABLE
     # each Python typed attribute is a column of the table
     # inherit from shared Base class
     # class has __tablename__
-
-class StatusTier(Enum):
-    NOT_ENCOUNTERED = 0
-    LEARNING = 1
-    FAMILIAR = 2
-    SOLID = 3
-    MASTERED = 4
 
 class PassageState(Enum):
     SENT_TO_USER = 0
