@@ -24,6 +24,9 @@
     - substitution cost is no longer flat; it's weighted by `ch_dist`, a normalized Euclidean distance between two letters' coordinates on a QWERTY grid with realistic ANSI row stagger (`QWERTY_COORDS`).
     - added a transposition operation (Damerau-Levenshtein style: detects an adjacent swapped pair, costs it via `ch_dist` between the swapped keys) as a fourth candidate inside the same `min()` as insert/delete/substitute, rather than short-circuiting around them.
     - typo/forgot classification now compares a length-normalized distance (`calc_lev_dist(...) / max(len(py), len(user_py))`) against `LEV_DIST_THRESHOLD`, currently set to `0.25` pending further empirical calibration against real typing data.
+- October 7th, 2026: slight edits to CSM framework...
+    - Learning needs a streak of 3 to promote to Familiar (same as Familiar)
+    - CSM protocol for newly-encountered words explicitly defined as promote to Learing base, *regardless* of whether an error was permitted.
 
 ## I. Content & Objectives
 Broadly, the purpose of Moxie is two-fold:
@@ -231,7 +234,7 @@ The tiered system and promotion schema for correct recognition are awarded as fo
 1. **Not Encountered:** default status for all vocabulary that has not shown in a passage yet
     - as soon as user encounters and interacts with a passage containing it, the unit shifts to Learning base
 2. **Learning:** preliminary stage to train user's recognition at short-term intervals
-    - to promote to Familiar, users must get the pinyin and tone right **two** times in a row
+    - to promote to Familiar, users must get the pinyin and tone right **three** times in a row
 3. **Familiar:** secondary stage of recognition, at slightly longer intervals
     - to promote to Solid, users must get the pinyin and tone right **three** (more) times in a row
 4. **Solid:** train user only in long intervals to prevent recognition erosion
@@ -239,7 +242,11 @@ The tiered system and promotion schema for correct recognition are awarded as fo
 5. **Mastered:** user revisits only once in a while
     - the user needs to maintain perfect recognition to maintain Mastered status
 
-Errors are tagged to individual characters, but at promotion/demotion are applied to the entire vocabulary unit (if not solo character). For slight errors, the following specific rules apply:
+Errors are tagged to individual characters, but at promotion/demotion are applied to the entire vocabulary unit (if not solo character). 
+
+Regardless of the error type, a first encounter of a new word is promoted to Learning base. The grading pipeline will report any errors if the user made them, as prescribed for all words. However, this doesn't impact the default AVD promotion.
+
+For slight errors, the following specific rules apply:
 - If current status is Familiar or Learning, the streaks are lost and the user maintains status but loses their streak.
 - If current status is Solid or Mastered, they are automatically demoted to Familiar +2 base points.
 
