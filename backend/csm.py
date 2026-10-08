@@ -7,7 +7,7 @@ from datetime import datetime
 
 from backend.schemas import VocabUnit, PinyinError, StatusTier
 from data.db import SessionLocal
-from backend.models import UserVocab
+from backend.models import UserVocab, HskVocabulary
 
 
 @dataclass
@@ -125,3 +125,41 @@ def compute_new_status(
     # otherwise, maintain current tier & increment streak
     else:
         return initial_status, final_points
+
+
+# ---------------------
+# Find Ind. Chars to Demote
+# ---------------------
+def find_ind_chars_demote(
+        vocab_error_list: list[VocabUnit],
+        user_id: int
+):
+    """Parses Levenshtein-passed list[VocabUnit] and creates separate list[VocabUnit] for individual chars demoted."""
+    ind_chars_error_list = []
+
+    # open a session to query individual characters
+    with SessionLocal() as session:
+
+        # iterate through each vocab unit & character
+        for vocab_unit in vocab_error_list:
+            for char, py, error in zip(vocab_unit.chars, vocab_unit.pinyin, vocab_unit.error_type):
+                # if error WASN'T made on this char, keep going
+                if error == PinyinError.CORRECT:
+                    continue
+
+                # try to find this char in the vocab (same char AND same pinyin)
+                row = session.query(HskVocabulary).join(
+                    UserVocab,
+                    UserVocab.vocab_id==HskVocabulary.vocab_id
+                ).filter(
+                    UserVocab.user_id==user_id,
+                    UserVocab.status_tier != StatusTier.NOT_ENCOUNTERED,
+                    HskVocabulary.simp_man_word==char,
+                    HskVocabulary.pinyin==py
+                ).first()
+                
+                # if (1) char exists by itself and (2) HAS been encountered, append to the end
+                if row is not None:
+                    ind_chars_error_list.append(VocabUnit(row.vocab_id, (row.simp_man_word,), (row.pinyin,), (error,)))
+
+    return ind_chars_error_list
