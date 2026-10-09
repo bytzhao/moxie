@@ -143,8 +143,8 @@ def find_ind_chars_demote(
         # iterate through each vocab unit & character
         for vocab_unit in vocab_error_list:
             for char, py, error in zip(vocab_unit.chars, vocab_unit.pinyin, vocab_unit.error_type):
-                # if error WASN'T made on this char, keep going
-                if error == PinyinError.CORRECT:
+                # if (1) error WASN'T made on this char or (2) this is already indiv char, keep going
+                if error == PinyinError.CORRECT or len(vocab_unit.chars) == 1:
                     continue
 
                 # try to find this char in the vocab (same char AND same pinyin)
@@ -157,7 +157,7 @@ def find_ind_chars_demote(
                     HskVocabulary.simp_man_word==char,
                     HskVocabulary.pinyin==py
                 ).first()
-                
+
                 # if (1) char exists by itself and (2) HAS been encountered, append to the end
                 if row is not None:
                     ind_chars_error_list.append(VocabUnit(row.vocab_id, (row.simp_man_word,), (row.pinyin,), (error,)))
