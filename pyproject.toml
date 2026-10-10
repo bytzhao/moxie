@@ -1,0 +1,16 @@
+[project]
+name = "moxie"
+version = "0.1.0"
+description = "A typing game-inspired Chinese literacy trainer."
+requires-python = ">=3.14"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py314"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+ignore = ["E501"]
