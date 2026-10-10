@@ -142,7 +142,9 @@ def find_ind_chars_demote(
 
         # iterate through each vocab unit & character
         for vocab_unit in vocab_error_list:
-            for char, py, error in zip(vocab_unit.chars, vocab_unit.pinyin, vocab_unit.error_type):
+            for char, py, error in zip(
+                vocab_unit.chars, vocab_unit.pinyin, vocab_unit.error_type, strict=True
+            ):
                 # if (1) error WASN'T made on this char or (2) this is already indiv char, keep going
                 if error == PinyinError.CORRECT or len(vocab_unit.chars) == 1:
                     continue
