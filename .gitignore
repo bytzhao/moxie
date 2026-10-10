@@ -219,3 +219,6 @@ __marimo__/
 
 # no docs
 *.db
+
+# .DS_Store everywhere
+**/.DS_Store
