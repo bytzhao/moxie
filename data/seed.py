@@ -109,4 +109,9 @@ def calibrate_user_vocab(session, user, baseline_level):
 
 
 if __name__ == "__main__":
+    if not USER_NAME:
+        raise SystemExit("USER_NAME has not been set in .env. Copy .env.example to .env and fill it in.")
+    if not USER_EMAIL:
+        raise SystemExit("USER_EMAIL has not been set in .env. Copy .env.example to .env and fill it in.")
+    
     seed_all(BASELINE_HSK_LEVEL, USER_NAME, USER_EMAIL)
