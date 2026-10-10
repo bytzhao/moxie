@@ -1,19 +1,22 @@
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
-from sqlalchemy import ForeignKey, PrimaryKeyConstraint, String
-from enum import Enum
 from datetime import datetime
+from enum import Enum
+
+from sqlalchemy import ForeignKey, PrimaryKeyConstraint, String
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from backend.schemas import StatusTier
 
 # ORM Basics:
-    # each ORM model is a Python class, representing a TABLE
-    # each Python typed attribute is a column of the table
-    # inherit from shared Base class
-    # class has __tablename__
+# each ORM model is a Python class, representing a TABLE
+# each Python typed attribute is a column of the table
+# inherit from shared Base class
+# class has __tablename__
+
 
 class PassageState(Enum):
     SENT_TO_USER = 0
     GRADED = 1
+
 
 class Base(DeclarativeBase):
     pass
@@ -44,9 +47,7 @@ class UserVocab(Base):
     points: Mapped[int]
     last_encounter_time: Mapped[datetime]
 
-    __table_args__ = (
-       PrimaryKeyConstraint("user_id", "vocab_id"),
-   )
+    __table_args__ = (PrimaryKeyConstraint("user_id", "vocab_id"),)
 
 
 class Appearances(Base):
@@ -57,9 +58,7 @@ class Appearances(Base):
     memory_score: Mapped[float]
     timestamp: Mapped[datetime]
 
-    __table_args__ = (
-        PrimaryKeyConstraint("vocab_id", "user_id", "passage_id"),
-    )
+    __table_args__ = (PrimaryKeyConstraint("vocab_id", "user_id", "passage_id"),)
 
 
 class Passages(Base):
@@ -67,4 +66,4 @@ class Passages(Base):
     passage_id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.user_id"))
     state: Mapped[PassageState]
-    answer_key: Mapped[str]     # serialized via vocab_ids
+    answer_key: Mapped[str]  # serialized via vocab_ids

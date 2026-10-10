@@ -3,10 +3,10 @@ hsk_vocab.py - facilitates access to a static HSK 3.0 vocabulary list.
 
 Functionality:
     1. Fast existence checks and pinyin lookup against the HSK 3.0 vocabulary list.
-    2. Dict maps Mandarin word strings to custom HskEntrys, tupling pinyin readings with position, HSK 
+    2. Dict maps Mandarin word strings to custom HskEntrys, tupling pinyin readings with position, HSK
     level and traditional characters.
-    3. One line per word, readings packed onto it as "pinyin:level:pos:traditional" joined 
-    by ";" - same shape as backend/segmenter.py's POLYPHONIC_CHARS, just with structured 
+    3. One line per word, readings packed onto it as "pinyin:level:pos:traditional" joined
+    by ";" - same shape as backend/segmenter.py's POLYPHONIC_CHARS, just with structured
     fields per reading instead of a bare pinyin string.
 """
 
@@ -14,6 +14,7 @@ from collections import Counter, namedtuple
 from pathlib import Path
 
 HskEntry = namedtuple("HskEntry", "pinyin level pos traditional")
+
 
 # ---------------------------
 # HSK Dictionary Loading
@@ -30,12 +31,14 @@ def _load_hsk_vocab(path):
             vocab[word] = tuple(
                 # keys (words) map to tupled HskEntrys, which are themselves tuples
                 # multiple HskEntrys = (1) different pinyin or (2) different pos (V vs. N) & level
-                HskEntry(*reading.split(":")) for reading in readings.split(";")
+                HskEntry(*reading.split(":"))
+                for reading in readings.split(";")
             )
     return vocab
 
+
 # actual generation - path explicitly defined (running w/ CWD = potential FileNotFound)
-HSK_TXT_PATH = Path(__file__).parent / "hsk30.txt"  
+HSK_TXT_PATH = Path(__file__).parent / "hsk30.txt"
 HSK_VOCAB = _load_hsk_vocab(HSK_TXT_PATH)
 
 
@@ -60,7 +63,7 @@ def check_hsk_duplicates():
         for line in hsk:
             man_word = line.split("\t", 1)[0]
             words.append(man_word)
-    
+
     # stores dict of words->counts for ALL HSK
     counts = Counter(words)
 

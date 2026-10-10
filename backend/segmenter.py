@@ -26,9 +26,8 @@ Pinyin Error:
 1. PolyPinyinWordError - passage includes chars/words with multiple pinyin readings, requiring further Claude clarification.
 """
 
-
-from pathlib import Path
 from enum import IntEnum
+from pathlib import Path
 
 import regex
 
@@ -61,6 +60,7 @@ class HallucinatedWordsError(Exception):
     """Exception raised when passage includes Mandarin chars not included in HSK 3.0.
     Returns: list of hallucinated words.
     """
+
     def __init__(self, halluc_words_list, message="non-HSK words detected"):
         super().__init__(message)
         self.halluc_words_list = halluc_words_list
@@ -70,6 +70,7 @@ class NotEncounteredWordsError(Exception):
     """Exception raised when passage includes HSK chars/words not yet encountered by the user.
     Returns: list of not-yet-encountered words.
     """
+
     def __init__(self, unlearned_words_list, message="Not-encountered words detected"):
         super().__init__(message)
         self.unlearned_words_list = unlearned_words_list
@@ -79,7 +80,12 @@ class FrontierWordsCountError(Exception):
     """Exception raised when passage includes either too many or too few frontier words.
     Returns: number of frontier words present in the passage.
     """
-    def __init__(self, num_frontier_words, message="Number of frontier words falls outside valid bounds"):
+
+    def __init__(
+        self,
+        num_frontier_words,
+        message="Number of frontier words falls outside valid bounds",
+    ):
         super().__init__(message)
         self.num_frontier_words = num_frontier_words
 
@@ -91,7 +97,14 @@ class PolyPinyinWordError(Exception):
         2. fully segmented Mandarin passage
         3. partial pinyin-generated passage
     """
-    def __init__(self, poly_words, seg_passage, partial_pinyin_passage, message="Chars/words w/ obscure (multiple) pinyins in passage need to be resolved."):
+
+    def __init__(
+        self,
+        poly_words,
+        seg_passage,
+        partial_pinyin_passage,
+        message="Chars/words w/ obscure (multiple) pinyins in passage need to be resolved.",
+    ):
         super().__init__(message)
         self.poly_words = poly_words
         self.seg_passage = seg_passage
@@ -108,21 +121,21 @@ class ValidationCode(IntEnum):
 ERROR_TABLE = {
     ValidationCode.HALLUC_ERROR: (HallucinatedWordsError, lambda x: x),
     ValidationCode.NOT_ENCOUNTERED_ERROR: (NotEncounteredWordsError, lambda x: x),
-    ValidationCode.FRONTIER_ERROR: (FrontierWordsCountError, len)
+    ValidationCode.FRONTIER_ERROR: (FrontierWordsCountError, len),
 }
 
 
-MAX_WORD_LEN = max(len(w) for w in HSK_VOCAB)          # static max length of all HSK 3.0 words
+MAX_WORD_LEN = max(len(w) for w in HSK_VOCAB)  # static max length of all HSK 3.0 words
 
 
 # ------------------------------
 # Main Pipeline
 # ------------------------------
 def seg_val_pinyin(
-        claude_passage: str,
-        hsk_encountered_dict: dict,
-        frontier_min: int,
-        frontier_max: int
+    claude_passage: str,
+    hsk_encountered_dict: dict,
+    frontier_min: int,
+    frontier_max: int,
 ):
     """Wraps entire segmentation, validation, and pinyin generation pipeline."""
     # 1) BiMM
@@ -139,30 +152,38 @@ def seg_val_pinyin(
 # BiMM & Pinyin Modules
 # ------------------------------
 def bimm(
-        passage: str,                       # the raw passage - including all punctuation
-        hsk_dict: dict,                     # all ENCOUNTERED words mapped to frontier or not (NO pinyin - use static)
-        frontier_min: int,                  # min frontier words acceptable in passage
-        frontier_max: int,                  # max frontier words acceptable in pasage
-        whole_hsk: dict = HSK_VOCAB,        # pass down to fmm/bmm - if bimm() module testing doesn't specify otherwise, is same as before
-        max_word_len: int = MAX_WORD_LEN    # pass down to fmm/bmm
+    passage: str,  # the raw passage - including all punctuation
+    hsk_dict: dict,  # all ENCOUNTERED words mapped to frontier or not (NO pinyin - use static)
+    frontier_min: int,  # min frontier words acceptable in passage
+    frontier_max: int,  # max frontier words acceptable in pasage
+    whole_hsk: dict = HSK_VOCAB,  # pass down to fmm/bmm - if bimm() module testing doesn't specify otherwise, is same as before
+    max_word_len: int = MAX_WORD_LEN,  # pass down to fmm/bmm
 ):
     """Conducts BiMM segmentation using FMM and BMM, validating on the 3 potential segmentation errors."""
     # 1) FMM & BMM Segmentation
     # extract only chinese chars from the given passage
     trim_passage = []
     for ch in passage:
-        if bool(regex.match(r'\p{Han}', ch)):
+        if bool(regex.match(r"\p{Han}", ch)):
             trim_passage.append(ch)
     trim_passage = "".join(trim_passage)
     passage_len = len(trim_passage)
 
     # conduct FMM and BMM
-    fmm_seg_passage, fmm_unknown = fmm(trim_passage, passage_len, whole_hsk, max_word_len)
-    bmm_seg_passage, bmm_unknown = bmm(trim_passage, passage_len, whole_hsk, max_word_len)
+    fmm_seg_passage, fmm_unknown = fmm(
+        trim_passage, passage_len, whole_hsk, max_word_len
+    )
+    bmm_seg_passage, bmm_unknown = bmm(
+        trim_passage, passage_len, whole_hsk, max_word_len
+    )
 
     # 2) Validation
-    fmm_analysis = validate_seg(frontier_min, frontier_max, hsk_dict, fmm_seg_passage, fmm_unknown)
-    bmm_analysis = validate_seg(frontier_min, frontier_max, hsk_dict, bmm_seg_passage, bmm_unknown)
+    fmm_analysis = validate_seg(
+        frontier_min, frontier_max, hsk_dict, fmm_seg_passage, fmm_unknown
+    )
+    bmm_analysis = validate_seg(
+        frontier_min, frontier_max, hsk_dict, bmm_seg_passage, bmm_unknown
+    )
 
     # 3) Evaluation
     fmm_validate_code = fmm_analysis["is_valid"]
@@ -173,11 +194,15 @@ def bimm(
         # A) errors are different -> return higher one
         if fmm_validate_code > bmm_validate_code:
             error_code, error_return = ERROR_TABLE[fmm_validate_code]
-            raise error_code(error_return(list(fmm_analysis.values())[fmm_validate_code]))
+            raise error_code(
+                error_return(list(fmm_analysis.values())[fmm_validate_code])
+            )
 
         elif fmm_validate_code < bmm_validate_code:
             error_code, error_return = ERROR_TABLE[bmm_validate_code]
-            raise error_code(error_return(list(bmm_analysis.values())[bmm_validate_code]))
+            raise error_code(
+                error_return(list(bmm_analysis.values())[bmm_validate_code])
+            )
 
         # B) errors are the same
         else:
@@ -189,9 +214,13 @@ def bimm(
 
             # if fmm len smaller, return that
             if fmm_errors < bmm_errors:
-                raise error_code(error_return(list(fmm_analysis.values())[fmm_validate_code]))
+                raise error_code(
+                    error_return(list(fmm_analysis.values())[fmm_validate_code])
+                )
             else:
-                raise error_code(error_return(list(bmm_analysis.values())[bmm_validate_code]))
+                raise error_code(
+                    error_return(list(bmm_analysis.values())[bmm_validate_code])
+                )
 
     # (2) only one is good
     elif fmm_validate_code != 0:
@@ -200,18 +229,18 @@ def bimm(
         return fmm_seg_passage
     # (3) both are good
     else:
-        return bmm_seg_passage      # default return BMM (for now)
+        return bmm_seg_passage  # default return BMM (for now)
 
 
 def gen_pinyin(
-        seg_passage: list[str],            # segmented passage (list of strings)
-        poly_chars: dict = POLY_CHARS,     # imported polychars as dict (chars -> tuples of pinyin)
-        hsk_pinyin_list: dict = HSK_VOCAB  # dict (chars to HskEntry tuple object)
+    seg_passage: list[str],  # segmented passage (list of strings)
+    poly_chars: dict = POLY_CHARS,  # imported polychars as dict (chars -> tuples of pinyin)
+    hsk_pinyin_list: dict = HSK_VOCAB,  # dict (chars to HskEntry tuple object)
 ):
     """Generates pinyin for a valid, segmented passage (list[str])."""
     # dict (position->char/word, pinyin readings):
     poly_words: dict[str, tuple] = {}
-    position = 0        # starting at 0, aligned with seg passage list
+    position = 0  # starting at 0, aligned with seg passage list
 
     # segmented pinyin list
     seg_passage_pinyin = []
@@ -246,11 +275,11 @@ def gen_pinyin(
 # Callees
 # ------------------------------
 def validate_seg(
-        frontier_min: int,
-        frontier_max: int,
-        hsk_dict: dict,
-        seg_passage: list[str],
-        unknown_chars: list[str]
+    frontier_min: int,
+    frontier_max: int,
+    hsk_dict: dict,
+    seg_passage: list[str],
+    unknown_chars: list[str],
 ):
     """Validates a segmented passage against the 3 segmentation errors."""
     # instantiate dict w/ empty fields, assumed valid at start
@@ -258,7 +287,7 @@ def validate_seg(
         "is_valid": ValidationCode.VALID_PASSAGE,
         "halluc_words": [],
         "not_encountered": [],
-        "frontier_words": []
+        "frontier_words": [],
     }
 
     # 1) check hallucinations
@@ -288,16 +317,11 @@ def validate_seg(
     return seg_analysis
 
 
-def fmm(
-    passage: str,
-    passage_len: int,
-    hsk_list: dict,
-    max_word_len: int
-):
+def fmm(passage: str, passage_len: int, hsk_list: dict, max_word_len: int):
     """Conducts Forward Maximum Matching on a given str passage."""
-    current_char = 0        # pointer to char where currently evaluating next longest word
-    seg_passage = []        # list of individual word strings
-    unknown_chars = []      # list of individual invalid chars
+    current_char = 0  # pointer to char where currently evaluating next longest word
+    seg_passage = []  # list of individual word strings
+    unknown_chars = []  # list of individual invalid chars
 
     # while there are chars left to process, keep going
     while current_char < passage_len:
@@ -341,21 +365,17 @@ def fmm(
             # move to next by incrementing by 1
             current_char = current_char + 1
 
-
     # at the end, return the segmented string list
     return seg_passage, unknown_chars
 
 
-def bmm(
-    passage: str,
-    passage_len: int,
-    hsk_list: dict,
-    max_word_len: int
-):
+def bmm(passage: str, passage_len: int, hsk_list: dict, max_word_len: int):
     """Conducts Backward Maximum Matching on a given str passage."""
-    current_char = passage_len - 1      # pointer to char where currently evaluating next longest word
-    seg_passage = []                    # list of individual word strings
-    unknown_chars = []                  # list of individual invalid chars
+    current_char = (
+        passage_len - 1
+    )  # pointer to char where currently evaluating next longest word
+    seg_passage = []  # list of individual word strings
+    unknown_chars = []  # list of individual invalid chars
 
     # while there are chars left to process, keep going
     while current_char > -1:
@@ -398,7 +418,6 @@ def bmm(
 
             # move to next by incrementing by 1
             current_char = current_char - 1
-
 
     # at the end, return the segmented string list
     return seg_passage, unknown_chars

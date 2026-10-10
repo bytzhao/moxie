@@ -13,7 +13,7 @@ from datetime import datetime
 
 from dotenv import load_dotenv
 
-from backend.models import HskVocabulary, StatusTier, UserVocab, Users
+from backend.models import HskVocabulary, StatusTier, Users, UserVocab
 from data.db import SessionLocal, create_tables
 from data.hsk_vocab import HSK_VOCAB
 
@@ -51,15 +51,16 @@ def level_rank(hsk_level):
 def seed_hsk_vocab(session):
     """One row per (word, reading) pair already parsed into HSK_VOCAB."""
     for word, entries in HSK_VOCAB.items():
-
         # go through individual HskEntrys
         for entry in entries:
-            session.add(HskVocabulary(
-                simp_man_word=word,
-                pinyin=entry.pinyin,
-                hsk_level=entry.level,
-                trad_man_word=entry.traditional,
-            ))
+            session.add(
+                HskVocabulary(
+                    simp_man_word=word,
+                    pinyin=entry.pinyin,
+                    hsk_level=entry.level,
+                    trad_man_word=entry.traditional,
+                )
+            )
     session.commit()
 
 
@@ -98,20 +99,26 @@ def calibrate_user_vocab(session, user, baseline_level):
         else:
             tier = StatusTier.NOT_ENCOUNTERED
 
-        session.add(UserVocab(
-            user_id=user.user_id,
-            vocab_id=vocab.vocab_id,
-            status_tier=tier,
-            points=0,
-            last_encounter_time=calibration_time,
-        ))
+        session.add(
+            UserVocab(
+                user_id=user.user_id,
+                vocab_id=vocab.vocab_id,
+                status_tier=tier,
+                points=0,
+                last_encounter_time=calibration_time,
+            )
+        )
     session.commit()
 
 
 if __name__ == "__main__":
     if not USER_NAME:
-        raise SystemExit("USER_NAME has not been set in .env. Copy .env.example to .env and fill it in.")
+        raise SystemExit(
+            "USER_NAME has not been set in .env. Copy .env.example to .env and fill it in."
+        )
     if not USER_EMAIL:
-        raise SystemExit("USER_EMAIL has not been set in .env. Copy .env.example to .env and fill it in.")
-    
+        raise SystemExit(
+            "USER_EMAIL has not been set in .env. Copy .env.example to .env and fill it in."
+        )
+
     seed_all(BASELINE_HSK_LEVEL, USER_NAME, USER_EMAIL)

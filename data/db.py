@@ -10,7 +10,7 @@ SessionLocal is like a CLASS binded to the engine that returns a "session" objec
 - Class ITSELF created once.
 - Objects created whenever necessary, for specific actions.
 
-Usage: 
+Usage:
     from data.db import SessionLocal
     ...
     # GENERATE A NEW SESSION OBJECT OF CLASS SESSIONLOCAL()
@@ -26,12 +26,14 @@ SQLite:
         - create custom methods to do specific operations (i.e. get last 50 passages)
         - but thinly wraps Session's existing functionality
 
-    - create_all() doesn't have ability to EDIT EXISTING tables 
+    - create_all() doesn't have ability to EDIT EXISTING tables
 """
+
+from pathlib import Path
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from pathlib import Path
+
 from backend.models import Base
 
 DB_PATH = Path(__file__).parent / "moxie.db"
