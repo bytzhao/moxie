@@ -97,7 +97,6 @@ expected_final_rows_2 = [
 
 # C) Function Call
 def test_csm_full_pipe(test_session_factory, user_id, starting_rows, vocab_error_list, expected_promo_demo, expected_final_rows):
-    # TODO:
     # (1) seed `starting_rows` into the isolated DB via test_session_factory (a Users row + one
     #     UserVocab row per (vocab_id, status_tier, points) tuple), commit.
     with test_session_factory() as session:

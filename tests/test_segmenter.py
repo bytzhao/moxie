@@ -188,17 +188,34 @@ hsk_encountered_dict_1 = {
     "老师": False, "今天": False, "很": False, "高兴": False,
 }
 frontier_min_1, frontier_max_1 = 0, 8
-expected_1 = {
-    "我" : "wo3",
-    "是" : "shi4",
-    "学生" : "xue2sheng1",
-    "认识" : "ren4shi0",
-    "老师" : "lao3shi1",
-    "今天" : "jin1tian1",
-    "我" : "wo3",
-    "很" : "hen3",
-    "高兴" : "gao1xing4"
-}
+
+expected_1 = (
+    [
+        "我",
+        "是",
+        "学生",
+        "我",
+        "认识",
+        "老师",
+        "今天",
+        "我",
+        "很",
+        "高兴"
+    ],
+    [
+        "wo3",
+        "shi4",
+        "xue2sheng1",
+        "wo3",
+        "ren4shi0",
+        "lao3shi1",
+        "jin1tian1",
+        "wo3",
+        "hen3",
+        "gao1xing4"
+    ]
+)
+
 exception_1 = None
 
 # --- Scenario 2: hallucinated word in seg ("甭" is not in HSK_VOCAB at any length) ---
