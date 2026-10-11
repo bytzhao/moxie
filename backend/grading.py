@@ -34,12 +34,13 @@ TOTAL OUTPUT TO FRONTEND:
         - frontend persists user's actual answers throuhgout all of this
     - vocab/chars promos/demos
 """
+
 from datetime import datetime
 
 from backend.csm import csm, find_ind_chars_demote
 from backend.levenshtein import levenshtein, trim_and_seg
 from backend.models import Appearances
-from backend.schemas import VocabUnit, VocabErrorGroup
+from backend.schemas import VocabErrorGroup, VocabUnit
 from data.db import SessionLocal
 
 # ------------------------------
@@ -96,13 +97,12 @@ def grade(
     # (2) Levenshtein Distance Grading
     vocab_error_list = levenshtein(user_passage, EX_VOCAB_UNIT_LIST)
 
-
     # (3) Generate Individual Chars to Demote
     ind_chars_demote = find_ind_chars_demote(vocab_error_list, user_id)
 
     # (3.5) Condense List for Appearances + CSM
     # maps vocab_id -> a VocabErrorGroup (tuple of chars + list of all error occurrences)
-    condensed_vocab_error_dict  = condense_vocab_errors(vocab_error_list)
+    condensed_vocab_error_dict = condense_vocab_errors(vocab_error_list)
 
     # (4) Log New Appearances
     log_appearances(condensed_vocab_error_dict, passage_id, timestamp, user_id)
@@ -124,11 +124,12 @@ def condense_vocab_errors(vocab_error_list: list[VocabUnit]):
         # if first occurrence, add it
         if vocab_unit.vocab_id not in condensed_error_dict:
             condensed_error_dict[vocab_unit.vocab_id] = VocabErrorGroup(
-                chars=vocab_unit.chars,
-                error_list=vocab_unit.error_type
+                chars=vocab_unit.chars, error_list=vocab_unit.error_type
             )
         else:
-            condensed_error_dict[vocab_unit.vocab_id].error_list += vocab_unit.error_type
+            condensed_error_dict[
+                vocab_unit.vocab_id
+            ].error_list += vocab_unit.error_type
     return condensed_error_dict
 
 
@@ -159,7 +160,7 @@ def log_appearances(
                 user_id=user_id,
                 passage_id=passage_id,
                 memory_score=avg_mem_score,
-                timestamp=timestamp
+                timestamp=timestamp,
             )
 
             session.add(row)

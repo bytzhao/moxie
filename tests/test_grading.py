@@ -19,10 +19,10 @@ import pytest
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
-from backend.grading import grade, UserPassageLenError
-from backend.models import Base, Users, UserVocab, HskVocabulary, Appearances
-from backend.schemas import VocabUnit, PinyinError, StatusTier
 from backend.csm import CSMUpdate
+from backend.grading import UserPassageLenError, grade
+from backend.models import Appearances, Base, HskVocabulary, Users, UserVocab
+from backend.schemas import PinyinError, StatusTier, VocabUnit
 
 PASSAGE_ID = 1
 USER_ID = 1
@@ -67,31 +67,42 @@ expected_exception_2 = UserPassageLenError
 user_passage_3 = "wo3 shi4 zhong1 guo2 ren2"  # fully correct
 starting_user_vocab_rows_3 = [
     # (vocab_id, status_tier, points) - each one at least 1 point below its ceiling
-    (1, StatusTier.FAMILIAR, 0),   # ceiling 3, +1 -> 1
-    (2, StatusTier.LEARNING, 1),   # ceiling 3, +1 -> 2
-    (3, StatusTier.SOLID, 2),      # ceiling 5, +1 -> 3
-    (4, StatusTier.MASTERED, 0),   # ceiling infinite, never promotes further
+    (1, StatusTier.FAMILIAR, 0),  # ceiling 3, +1 -> 1
+    (2, StatusTier.LEARNING, 1),  # ceiling 3, +1 -> 2
+    (3, StatusTier.SOLID, 2),  # ceiling 5, +1 -> 3
+    (4, StatusTier.MASTERED, 0),  # ceiling infinite, never promotes further
 ]
 starting_hsk_vocab_rows_3 = []
 expected_exception_3 = None
 expected_vocab_error_list_3 = [
-    VocabUnit(vocab_id=1, chars=("我",), pinyin=("wo3",), error_type=(PinyinError.CORRECT,)),
-    VocabUnit(vocab_id=2, chars=("是",), pinyin=("shi4",), error_type=(PinyinError.CORRECT,)),
-    VocabUnit(vocab_id=3, chars=("中", "国"), pinyin=("zhong1", "guo2"), error_type=(PinyinError.CORRECT, PinyinError.CORRECT)),
-    VocabUnit(vocab_id=4, chars=("人",), pinyin=("ren2",), error_type=(PinyinError.CORRECT,)),
+    VocabUnit(
+        vocab_id=1, chars=("我",), pinyin=("wo3",), error_type=(PinyinError.CORRECT,)
+    ),
+    VocabUnit(
+        vocab_id=2, chars=("是",), pinyin=("shi4",), error_type=(PinyinError.CORRECT,)
+    ),
+    VocabUnit(
+        vocab_id=3,
+        chars=("中", "国"),
+        pinyin=("zhong1", "guo2"),
+        error_type=(PinyinError.CORRECT, PinyinError.CORRECT),
+    ),
+    VocabUnit(
+        vocab_id=4, chars=("人",), pinyin=("ren2",), error_type=(PinyinError.CORRECT,)
+    ),
 ]
 expected_promo_demo_3 = {}
 expected_final_uservocab_rows_3 = [
     (1, StatusTier.FAMILIAR, 1),
     (2, StatusTier.LEARNING, 2),
     (3, StatusTier.SOLID, 3),
-    (4, StatusTier.MASTERED, 1)
+    (4, StatusTier.MASTERED, 1),
 ]
 expected_appearances_rows_3 = [
     (1, USER_ID, PASSAGE_ID, 1, TEST_TIMESTAMP),
     (2, USER_ID, PASSAGE_ID, 1, TEST_TIMESTAMP),
     (3, USER_ID, PASSAGE_ID, 1, TEST_TIMESTAMP),
-    (4, USER_ID, PASSAGE_ID, 1, TEST_TIMESTAMP)
+    (4, USER_ID, PASSAGE_ID, 1, TEST_TIMESTAMP),
 ]
 
 # --- Scenario 4: mix of promotions, demotions, and a plain streak increase ---
@@ -102,10 +113,10 @@ expected_appearances_rows_3 = [
 # 人 (ren2): correct, doesn't hit its ceiling -> streak increase only, no promotion
 user_passage_4 = "wo3 ge4 zhong1 bu2 ren2"
 starting_user_vocab_rows_4 = [
-    (1, StatusTier.FAMILIAR, 2),   # ceiling 3, +1 -> 3 -> promote to SOLID
-    (2, StatusTier.FAMILIAR, 1),   # severe -> demote to LEARNING
-    (3, StatusTier.SOLID, 3),      # severe (worst of the two chars) -> demote to FAMILIAR
-    (4, StatusTier.LEARNING, 1),   # ceiling 3, +1 -> 2, stays LEARNING
+    (1, StatusTier.FAMILIAR, 2),  # ceiling 3, +1 -> 3 -> promote to SOLID
+    (2, StatusTier.FAMILIAR, 1),  # severe -> demote to LEARNING
+    (3, StatusTier.SOLID, 3),  # severe (worst of the two chars) -> demote to FAMILIAR
+    (4, StatusTier.LEARNING, 1),  # ceiling 3, +1 -> 2, stays LEARNING
     (11, StatusTier.FAMILIAR, 2),  # standalone "国" - severe -> demote to LEARNING
 ]
 starting_hsk_vocab_rows_4 = [
@@ -115,23 +126,58 @@ starting_hsk_vocab_rows_4 = [
 ]
 expected_exception_4 = None
 expected_vocab_error_list_4 = [
-    VocabUnit(vocab_id=1, chars=("我",), pinyin=("wo3",), error_type=(PinyinError.CORRECT,)),
-    VocabUnit(vocab_id=2, chars=("是",), pinyin=("shi4",), error_type=(PinyinError.FORGOT,)),
-    VocabUnit(vocab_id=3, chars=("中", "国"), pinyin=("zhong1", "guo2"), error_type=(PinyinError.CORRECT,PinyinError.FORGOT)),
-    VocabUnit(vocab_id=4, chars=("人",), pinyin=("ren2",), error_type=(PinyinError.CORRECT,)),
+    VocabUnit(
+        vocab_id=1, chars=("我",), pinyin=("wo3",), error_type=(PinyinError.CORRECT,)
+    ),
+    VocabUnit(
+        vocab_id=2, chars=("是",), pinyin=("shi4",), error_type=(PinyinError.FORGOT,)
+    ),
+    VocabUnit(
+        vocab_id=3,
+        chars=("中", "国"),
+        pinyin=("zhong1", "guo2"),
+        error_type=(PinyinError.CORRECT, PinyinError.FORGOT),
+    ),
+    VocabUnit(
+        vocab_id=4, chars=("人",), pinyin=("ren2",), error_type=(PinyinError.CORRECT,)
+    ),
 ]
 expected_promo_demo_4 = {
-    1: CSMUpdate(char=("我",), error_type=0, initial_status=StatusTier.FAMILIAR, final_status=StatusTier.SOLID, final_points=0),
-    2: CSMUpdate(char=("是",), error_type=PinyinError.FORGOT, initial_status=StatusTier.FAMILIAR, final_status=StatusTier.LEARNING, final_points=2),
-    3: CSMUpdate(char=("中", "国"), error_type=PinyinError.FORGOT, initial_status=StatusTier.SOLID, final_status=StatusTier.FAMILIAR, final_points=1),
-    11: CSMUpdate(char=("国",), error_type=PinyinError.FORGOT, initial_status=StatusTier.FAMILIAR, final_status=StatusTier.LEARNING, final_points=2)
+    1: CSMUpdate(
+        char=("我",),
+        error_type=0,
+        initial_status=StatusTier.FAMILIAR,
+        final_status=StatusTier.SOLID,
+        final_points=0,
+    ),
+    2: CSMUpdate(
+        char=("是",),
+        error_type=PinyinError.FORGOT,
+        initial_status=StatusTier.FAMILIAR,
+        final_status=StatusTier.LEARNING,
+        final_points=2,
+    ),
+    3: CSMUpdate(
+        char=("中", "国"),
+        error_type=PinyinError.FORGOT,
+        initial_status=StatusTier.SOLID,
+        final_status=StatusTier.FAMILIAR,
+        final_points=1,
+    ),
+    11: CSMUpdate(
+        char=("国",),
+        error_type=PinyinError.FORGOT,
+        initial_status=StatusTier.FAMILIAR,
+        final_status=StatusTier.LEARNING,
+        final_points=2,
+    ),
 }
 expected_final_uservocab_rows_4 = [
     (1, StatusTier.SOLID, 0),
     (2, StatusTier.LEARNING, 2),
     (3, StatusTier.FAMILIAR, 1),
     (4, StatusTier.LEARNING, 2),
-    (11, StatusTier.LEARNING, 2)
+    (11, StatusTier.LEARNING, 2),
 ]
 expected_appearances_rows_4 = [
     (1, USER_ID, PASSAGE_ID, 1, TEST_TIMESTAMP),
@@ -147,30 +193,51 @@ expected_appearances_rows_4 = [
     "expected_vocab_error_list, expected_promo_demo, expected_final_uservocab_rows, expected_appearances_rows",
     [
         pytest.param(
-            user_passage_1, starting_user_vocab_rows_1, starting_hsk_vocab_rows_1,
-            expected_exception_1, None, None, None, None,
+            user_passage_1,
+            starting_user_vocab_rows_1,
+            starting_hsk_vocab_rows_1,
+            expected_exception_1,
+            None,
+            None,
+            None,
+            None,
             id="passage too short",
         ),
         pytest.param(
-            user_passage_2, starting_user_vocab_rows_2, starting_hsk_vocab_rows_2,
-            expected_exception_2, None, None, None, None,
+            user_passage_2,
+            starting_user_vocab_rows_2,
+            starting_hsk_vocab_rows_2,
+            expected_exception_2,
+            None,
+            None,
+            None,
+            None,
             id="passage too long",
         ),
         pytest.param(
-            user_passage_3, starting_user_vocab_rows_3, starting_hsk_vocab_rows_3,
-            expected_exception_3, expected_vocab_error_list_3, expected_promo_demo_3,
-            expected_final_uservocab_rows_3, expected_appearances_rows_3,
+            user_passage_3,
+            starting_user_vocab_rows_3,
+            starting_hsk_vocab_rows_3,
+            expected_exception_3,
+            expected_vocab_error_list_3,
+            expected_promo_demo_3,
+            expected_final_uservocab_rows_3,
+            expected_appearances_rows_3,
             id="no promo/demo - updates still happen",
         ),
         pytest.param(
-            user_passage_4, starting_user_vocab_rows_4, starting_hsk_vocab_rows_4,
-            expected_exception_4, expected_vocab_error_list_4, expected_promo_demo_4,
-            expected_final_uservocab_rows_4, expected_appearances_rows_4,
+            user_passage_4,
+            starting_user_vocab_rows_4,
+            starting_hsk_vocab_rows_4,
+            expected_exception_4,
+            expected_vocab_error_list_4,
+            expected_promo_demo_4,
+            expected_final_uservocab_rows_4,
+            expected_appearances_rows_4,
             id="mix of promo/demo/streak-increase",
         ),
     ],
 )
-
 
 # C) Function Call
 def test_grade_full_pipe(
@@ -195,7 +262,7 @@ def test_grade_full_pipe(
                 simp_man_word=chars,
                 pinyin=py,
                 hsk_level=1,
-                trad_man_word=""
+                trad_man_word="",
             )
             for vid, chars, py in starting_hsk_vocab_rows
         ]
@@ -206,7 +273,7 @@ def test_grade_full_pipe(
                 vocab_id=vid,
                 status_tier=tier,
                 points=pts,
-                last_encounter_time=TEST_TIMESTAMP
+                last_encounter_time=TEST_TIMESTAMP,
             )
             for vid, tier, pts in starting_user_vocab_rows
         ]
@@ -215,7 +282,7 @@ def test_grade_full_pipe(
             user_id=USER_ID,
             user_name="Stephen Dedalus",
             user_email="sdedalus@gmail.com",
-            created_time=TEST_TIMESTAMP
+            created_time=TEST_TIMESTAMP,
         )
 
         session.add_all(hsk_vocab_rows + user_vocab_rows)
@@ -231,7 +298,9 @@ def test_grade_full_pipe(
             grade(PASSAGE_ID, user_passage, USER_ID, TEST_TIMESTAMP)
         pass
     else:
-        actual_vocab_error_list, actual_promo_demo = grade(PASSAGE_ID, user_passage, USER_ID, TEST_TIMESTAMP)
+        actual_vocab_error_list, actual_promo_demo = grade(
+            PASSAGE_ID, user_passage, USER_ID, TEST_TIMESTAMP
+        )
         assert actual_vocab_error_list == expected_vocab_error_list
         assert actual_promo_demo == expected_promo_demo
 
@@ -241,11 +310,11 @@ def test_grade_full_pipe(
         #     expected_appearances_rows.
         with test_session_factory() as session:
             uservocab_rows = select(
-                UserVocab.vocab_id,
-                UserVocab.status_tier,
-                UserVocab.points
-            ).where(UserVocab.user_id == USER_ID, UserVocab.vocab_id.in_({1, 2, 3, 4, 11}))
-            
+                UserVocab.vocab_id, UserVocab.status_tier, UserVocab.points
+            ).where(
+                UserVocab.user_id == USER_ID, UserVocab.vocab_id.in_({1, 2, 3, 4, 11})
+            )
+
             actual_uservocab_rows = session.execute(uservocab_rows).tuples().all()
             assert expected_final_uservocab_rows == actual_uservocab_rows
 
@@ -254,13 +323,12 @@ def test_grade_full_pipe(
                 Appearances.user_id,
                 Appearances.passage_id,
                 Appearances.memory_score,
-                Appearances.timestamp
+                Appearances.timestamp,
             ).where(
                 Appearances.user_id == USER_ID,
                 Appearances.passage_id == PASSAGE_ID,
-                Appearances.vocab_id.in_({1, 2, 3, 4})
+                Appearances.vocab_id.in_({1, 2, 3, 4}),
             )
-            
+
             actual_appearances_rows = session.execute(appearance_rows).tuples().all()
             assert expected_appearances_rows == actual_appearances_rows
-            
