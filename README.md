@@ -113,12 +113,12 @@ Detailed task breakdown: [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## AI usage
 
-This is a learning project as much as a product. I use Claude Code under a written contract ([CLAUDE.md](CLAUDE.md)). In general, Claude employs a Socratic teaching method and never writes into files without explicit and bounded permission. More specifically, Claude handles design discussion, code review, configuration and boilerplate, and drafted parts of this documentation. However, the core logic is written by hand: segmentation, grading, the state machine, the schema, and the tests. That includes every expected value the tests assert against, which I trace by hand through the algorithm rather than generate. With the exception of Section XIX, a laundry list of decisions, each PRD iteration is almost written by me, minus Claude passes for consistency and minute edits.
+This is a learning project as much as a product. I use Claude Code under a written contract ([CLAUDE.md](CLAUDE.md)). In general, Claude employs a Socratic teaching method and never writes into files without explicit and bounded permission. More specifically, Claude handles design discussion, code review, configuration and boilerplate, drafted parts of this documentation, and generated the initial polyphonic-character table (see Acknowledgments). However, the core logic is written by hand: segmentation, grading, the state machine, the schema, and the tests. That includes every expected value the tests assert against, which I trace by hand through the algorithm rather than generate. With the exception of Section XIX, a laundry list of decisions, each PRD iteration is almost entirely written by me, minus Claude passes for consistency and minute edits.
 
 ## Acknowledgments
 
 - HSK 3.0 vocabulary data adapted from [ivankra/hsk30](https://github.com/ivankra/hsk30) (MIT).
-<!-- TODO: credit source of data/polychars.txt -->
+- Polyphonic character table (`data/polychars.txt`) generated with Claude; not yet independently verified. Replacing it with a table derived from the HSK data is on the [roadmap](docs/ROADMAP.md).
 
 ## License
 
