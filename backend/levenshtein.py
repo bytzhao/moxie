@@ -223,11 +223,9 @@ TEST_PINYIN = [
 ]
 
 
-def test_lev_dist():
-    for pair in TEST_PINYIN:
-        print(calc_lev_dist(pair[0], pair[1]) / max(len(pair[0]), len(pair[1])))
-
-
+# ------------------------------
+# Trim & Segment Module
+# ------------------------------
 def trim_and_seg(user_passage: str):
     seg = split(r"(?<=\d|\-)", user_passage)
     print(seg)
@@ -244,11 +242,3 @@ def trim_and_seg(user_passage: str):
     seg_user_passage = [char_pinyin for char_pinyin in seg_user_passage if char_pinyin]
     print(f"FINAL USER SEG PASSAGE: \n {seg_user_passage}")
     return seg_user_passage
-
-
-def main():
-    trim_and_seg(EX_USER_RESPONSE)
-
-
-if __name__ == "__main__":
-    main()
