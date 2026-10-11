@@ -400,7 +400,7 @@ Each entry records what was decided, why, and what evidence would justify reopen
         - **Revisit if:** tone errors cluster on specific characters, looking like slips rather than gaps.
     - ***Keyboard-weighted Levenshtein scoped to the original string only; non-typo variants matched by equality, not distance.*** Edit distance is string-to-string; matching a regex directly is harder. Three independent flags originally suggested up to eight candidate combinations; PoC caps this at four (original plus one single-error string each) and drops combinations as too rare to justify the false-positive risk on pinyin this short. Of those four, the three error variants are exact-match only - they're categorical, not fuzzy - and real Levenshtein distance runs only against the original, scoped to typo detection, and only for pinyin 4+ characters (not counting tone).
         - **Revisit if:** logged data shows combinations or typo-stacked-on-a-slight-error are common enough to be worth the added ambiguity, or the length floor proves miscalibrated in practice.
-    - ***Streak-based tier promotion at 2 / 3 / 5.*** Consecutive correct decodes for Learning → Familiar → Solid → Mastered. Initial instinct, to be tuned from use.
+    - ***Streak-based tier promotion at 3 / 3 / 5.*** Consecutive correct decodes for Learning → Familiar → Solid → Mastered. Initial instinct, to be tuned from use.
         - **Revisit if:** a week of sessions shows the pacing is wrong. Expected to change.
     - ***Compound-to-character mirroring is asymmetric.*** Demotions propagate to the failing character; promotions don't. Recognizing in one context isn't evidence elsewhere; failing is.
         - **Revisit if:** character-level status drifts implausibly far from compound-level.

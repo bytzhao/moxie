@@ -1,25 +1,25 @@
 **Remaining Build Roadmap** *(sequential; see PRD §XVI for milestone framing)*
 
-**Status:** full grading pipeline, test suite and orchestration in main left for Milestone 0.
+**Status:** Milestone 0 grading pipeline (`levenshtein.py`, `csm.py`, `grading.py`) complete with test suites. Remaining for Milestone 0: FastAPI routes in `main.py`.
 
 *Milestone 0 — grading + CSM loop, no LLM:*
-- `backend/levenshtein.py`
+- [x] `backend/levenshtein.py`
     - tone-strip + tonal-correctness check (severe if wrong)
     - retroflex/umlaut/nasal candidate-string generator (PRD §X.1)
     - keyboard-weighted Levenshtein distance vs. candidate set, slight/severe threshold classification
     - char-by-char alignment of submitted PRS against stored answer key
     - tests (structure by hand, oracles hand-traced)
-- `backend/csm.py`
-    - streak-based promotion logic (2/3/5 consecutive-correct thresholds)
+- [x] `backend/csm.py`
+    - streak-based promotion logic (3/3/5 consecutive-correct thresholds)
     - slight-error demotion rules (streak loss vs. Solid/Mastered → Familiar+2)
     - severe-error demotion rules (per-tier floors, PRD §XI)
     - compound→character mirroring (demotion-only, exact-pinyin-match)
     - DB writes: `UserVocab` status/points/timestamp, `Appearances` rows (multi-char memory-score averaging)
     - tests
-- `backend/grading.py`
+- [x] `backend/grading.py`
     - main.py callee orchestrating Levenshtein distance grading and CSM
     - entire grading pipeline tests
-- `backend/main.py`
+- [ ] `backend/main.py`
     - `GET /api/health`
     - `POST /api/grade` (toy hardcoded passage + key, wired to grading.py + csm.py)
     - manual test: submit toy pinyin, inspect DB state before/after
@@ -37,6 +37,10 @@
     - validation loop: length check, frontier-count check, hallucination check, retry prompts, 2-strike abort
     - polyphone resolution pass (bounded table + Claude disambiguation call)
     - write to `Passages` table (answer key, state=SENT_TO_USER)
+- `data/polychars.txt` provenance
+    - current table (389 entries) was Claude-generated and is unverified; PRD §XIX.4 scopes a bounded ~100-entry table
+    - derive it from multi-reading entries in `hsk30.txt` via a prep script (same pattern as `prepare_hsk30.py`), so the table has provenance by construction
+    - add tests for the derivation
 - `backend/main.py`
     - `POST /api/fpg` route
     - integration test: real Claude passage generation end to end into DB
