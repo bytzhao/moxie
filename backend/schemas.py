@@ -37,6 +37,12 @@ class VocabUnit:
     error_type: tuple[PinyinError, ...]
 
 
+@dataclass
+class VocabErrorGroup:
+    chars: tuple[str, ...]
+    error_list: list[PinyinError]
+
+
 class StatusTier(IntEnum):
     NOT_ENCOUNTERED = 0
     LEARNING = 1
