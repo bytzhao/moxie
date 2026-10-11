@@ -12,24 +12,6 @@ LEV_DIST_THRESHOLD = 0.25
 
 
 # ------------------------------
-# Test User Input & HSK Dict
-# ------------------------------
-EX_VOCAB_UNIT_LIST = [
-    VocabUnit(vocab_id=1, chars=("我",), pinyin=("wo3",), error_type=(None,)),
-    VocabUnit(vocab_id=2, chars=("是",), pinyin=("shi4",), error_type=(None,)),
-    VocabUnit(
-        vocab_id=3,
-        chars=("中", "国"),
-        pinyin=("zhong1", "guo2"),
-        error_type=(None, None),
-    ),
-    VocabUnit(vocab_id=4, chars=("人",), pinyin=("ren2",), error_type=(None,)),
-]
-
-EX_USER_RESPONSE = "wo2 - , z???jong1 gu.     o2 gaga."
-
-
-# ------------------------------
 # Grading Orchestrator
 # ------------------------------
 def levenshtein(user_passage: str, vocab_error_list: list[VocabUnit]):
@@ -199,36 +181,11 @@ def ch_dist(correct_ch: str, user_ch: str) -> float:
     return dist(pos_correct, pos_user) / MAX_KEYBOARD_DIST
 
 
-def test_full_pipe():
-    vocablist = levenshtein(EX_USER_RESPONSE, EX_VOCAB_UNIT_LIST)
-
-    for unit in vocablist:
-        print(f"Word: {unit.chars}")
-        print(f"Error: {unit.error_type}")
-
-
-# ------------------------------
-# Basic Testing Apparatus
-# ------------------------------
-TEST_PINYIN = [
-    # Valid Typos
-    ["shuang", "shuanf"],
-    ["chuang", "cjuang"],
-    ["qiong", "qoing"],
-    # Forgot Error
-    ["shuang", "chuang"],
-    ["chuang", "chan"],
-    ["qiong", "qiun"],
-    ["bian", "dian"],
-]
-
-
 # ------------------------------
 # Trim & Segment Module
 # ------------------------------
 def trim_and_seg(user_passage: str):
     seg = split(r"(?<=\d|\-)", user_passage)
-    print(seg)
     seg_user_passage = []
 
     # remove spaces & punctuation entirely (except designated skip character '-')
@@ -240,5 +197,4 @@ def trim_and_seg(user_passage: str):
 
     # remove any empty pinyin (split() always gives a last one as "")
     seg_user_passage = [char_pinyin for char_pinyin in seg_user_passage if char_pinyin]
-    print(f"FINAL USER SEG PASSAGE: \n {seg_user_passage}")
     return seg_user_passage
