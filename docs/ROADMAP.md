@@ -9,8 +9,8 @@
     - keyboard-weighted Levenshtein distance vs. candidate set, slight/severe threshold classification
     - char-by-char alignment of submitted PRS against stored answer key
     - tests (structure by hand, oracles hand-traced)
-- `backend/csm.py`
-    - streak-based promotion logic (2/3/5 consecutive-correct thresholds)
+- [x] `backend/csm.py`
+    - streak-based promotion logic (3/3/5 consecutive-correct thresholds)
     - slight-error demotion rules (streak loss vs. Solid/Mastered → Familiar+2)
     - severe-error demotion rules (per-tier floors, PRD §XI)
     - compound→character mirroring (demotion-only, exact-pinyin-match)
