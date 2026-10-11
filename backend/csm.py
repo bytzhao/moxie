@@ -5,35 +5,32 @@ Writes promotions/demotions to DB from grading verdicts.
 from dataclasses import dataclass
 from datetime import datetime
 
-from backend.schemas import VocabUnit, PinyinError, StatusTier
+from backend.models import HskVocabulary, UserVocab
+from backend.schemas import PinyinError, StatusTier, VocabUnit
 from data.db import SessionLocal
-from backend.models import UserVocab, HskVocabulary
 
 
 @dataclass
-class CSMUpdate():
+class CSMUpdate:
     char: tuple[str, ...]
     error_type: PinyinError
     initial_status: StatusTier
     final_status: StatusTier
     final_points: int
 
+
 TIER_STREAK_CEILING = {
     StatusTier.LEARNING: 3,
     StatusTier.FAMILIAR: 3,
     StatusTier.SOLID: 5,
-    StatusTier.MASTERED: float('inf')
+    StatusTier.MASTERED: float("inf"),
 }
 
 
 # ---------------------
-# CSM Orchestrator 
+# CSM Orchestrator
 # ---------------------
-def csm(
-    vocab_error_list: list[VocabUnit],
-    user_id: int,
-    timestamp: datetime
-):
+def csm(vocab_error_list: list[VocabUnit], user_id: int, timestamp: datetime):
     """Orchestrates CSM changes to AVD."""
     # (1) Generate unique dict w/ vocab units (takes max error)
     csm_updates_dict = {}
@@ -44,15 +41,13 @@ def csm(
 
         # if already stored, update to max of the errors
         if vocab_unit.vocab_id in csm_updates_dict:
-            csm_updates_dict[vocab_unit.vocab_id].error_type = max(unit_error, csm_updates_dict[vocab_unit.vocab_id].error_type)
+            csm_updates_dict[vocab_unit.vocab_id].error_type = max(
+                unit_error, csm_updates_dict[vocab_unit.vocab_id].error_type
+            )
         # otherwise just add new unit to the dict
         else:
             csm_updates_dict[vocab_unit.vocab_id] = CSMUpdate(
-                vocab_unit.chars,
-                unit_error,
-                None,
-                None,
-                None
+                vocab_unit.chars, unit_error, None, None, None
             )
 
     # (2) Apply DB promotions/demotions
@@ -65,7 +60,9 @@ def csm(
             csm_update.initial_status = row.status_tier
 
             # update DB tier + streak
-            row.status_tier, row.points = compute_new_status(row.status_tier, row.points, csm_update.error_type)
+            row.status_tier, row.points = compute_new_status(
+                row.status_tier, row.points, csm_update.error_type
+            )
             row.last_encounter_time = timestamp
 
             # write final status & streak (dict)
@@ -74,10 +71,10 @@ def csm(
 
         # commit all changes
         session.commit()
-    
+
     # (3) Filter non tier-change units
     promo_demo_dict = {
-        vocab_id: csm_update 
+        vocab_id: csm_update
         for vocab_id, csm_update in csm_updates_dict.items()
         if csm_update.initial_status != csm_update.final_status
     }
@@ -89,9 +86,7 @@ def csm(
 # Tier Change Calculation
 # ---------------------
 def compute_new_status(
-        initial_status: StatusTier,
-        initial_points: int,
-        error_type: PinyinError
+    initial_status: StatusTier, initial_points: int, error_type: PinyinError
 ) -> list[StatusTier, int]:
     """Computes appropriate tier and streak changes given error & initial status."""
 
@@ -130,16 +125,12 @@ def compute_new_status(
 # ---------------------
 # Find Ind. Chars to Demote
 # ---------------------
-def find_ind_chars_demote(
-        vocab_error_list: list[VocabUnit],
-        user_id: int
-):
+def find_ind_chars_demote(vocab_error_list: list[VocabUnit], user_id: int):
     """Parses Levenshtein-passed list[VocabUnit] and creates separate list[VocabUnit] for individual chars demoted."""
     ind_chars_error_list = []
 
     # open a session to query individual characters
     with SessionLocal() as session:
-
         # iterate through each vocab unit & character
         for vocab_unit in vocab_error_list:
             for char, py, error in zip(
@@ -150,18 +141,24 @@ def find_ind_chars_demote(
                     continue
 
                 # try to find this char in the vocab (same char AND same pinyin)
-                row = session.query(HskVocabulary).join(
-                    UserVocab,
-                    UserVocab.vocab_id==HskVocabulary.vocab_id
-                ).filter(
-                    UserVocab.user_id==user_id,
-                    UserVocab.status_tier != StatusTier.NOT_ENCOUNTERED,
-                    HskVocabulary.simp_man_word==char,
-                    HskVocabulary.pinyin==py
-                ).first()
+                row = (
+                    session.query(HskVocabulary)
+                    .join(UserVocab, UserVocab.vocab_id == HskVocabulary.vocab_id)
+                    .filter(
+                        UserVocab.user_id == user_id,
+                        UserVocab.status_tier != StatusTier.NOT_ENCOUNTERED,
+                        HskVocabulary.simp_man_word == char,
+                        HskVocabulary.pinyin == py,
+                    )
+                    .first()
+                )
 
                 # if (1) char exists by itself and (2) HAS been encountered, append to the end
                 if row is not None:
-                    ind_chars_error_list.append(VocabUnit(row.vocab_id, (row.simp_man_word,), (row.pinyin,), (error,)))
+                    ind_chars_error_list.append(
+                        VocabUnit(
+                            row.vocab_id, (row.simp_man_word,), (row.pinyin,), (error,)
+                        )
+                    )
 
     return ind_chars_error_list
