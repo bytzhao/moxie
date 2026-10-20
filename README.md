@@ -8,7 +8,7 @@
 
 Learners who speak Mandarin well often can't *read* it at the same level. The bottleneck is decoding, or looking at a character and producing its sound, which Moxie targets directly. It tracks which of the ~11,000 words in the official HSK 3.0 vocabulary you know, has Claude write a short passage built almost entirely from those words plus a handful of "frontier" words you're still learning, and asks you to type the pinyin (romanized pronunciation, with tone numbers) for every character. Your answer is graded character by character and fed back into your vocabulary profile, which shapes the next passage.
 
-> **Status:** Phase 1 proof of concept, in active development. The grading engine and learner model are built and tested. Next up are the API layer, Claude passage generation, and the frontend. See [Roadmap](#roadmap).
+> **Status:** Phase 1 proof of concept, in active development. The grading engine, learner model, and API layer are built and tested S Next up are Claude passage generation and the frontend. See [Roadmap](#roadmap).
 
 ---
 
@@ -105,7 +105,7 @@ The web app itself isn't runnable yet; see the roadmap.
 - [x] HSK 3.0 dataset preparation and database seeding
 - [x] Segmentation, validation, and answer-key pipeline
 - [x] Grading engine and learner state machine
-- [ ] **Milestone 0:** API routes wiring grading end to end (no LLM)
+- [x] **Milestone 0:** API routes wiring grading end to end (no LLM)
 - [ ] **Milestone 1:** recency-scored word selection and Claude passage generation
 - [ ] **Milestone 2:** decoding UI with live cursor, results page
 
