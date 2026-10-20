@@ -76,4 +76,4 @@ The following are the SWE-related goals I wish to accomplish this semester.
 
 
 ## VI. Current Phase
-Implementing the segmenter function in segmenter.py. HSK static vocab + polyphonic chars list already seeded in data/. No LLM - using hardcoded passage for testing. 
+Milestone 0 finished. FPG pipeline next step w/ recency score algorithm implementation.
