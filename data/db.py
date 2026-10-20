@@ -31,7 +31,8 @@ SQLite:
 
 from pathlib import Path
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
+from sqlalchemy.engine import Engine
 from sqlalchemy.orm import sessionmaker
 
 from backend.models import Base
@@ -41,6 +42,14 @@ DB_PATH = Path(__file__).parent / "moxie.db"
 # engine object created to speak to SQLite, at this file path
 engine = create_engine("sqlite:///" + str(DB_PATH))
 SessionLocal = sessionmaker(bind=engine)
+
+
+# enforces PRAGMA foreign_keys
+@event.listens_for(Engine, "connect")
+def set_sqlite_pragma(dbapi_connection, connection_record):
+    cursor = dbapi_connection.cursor()
+    cursor.execute("PRAGMA foreign_keys=ON")
+    cursor.close()
 
 
 def create_tables():
