@@ -19,7 +19,7 @@
 - [x] `backend/grading.py`
     - main.py callee orchestrating Levenshtein distance grading and CSM
     - entire grading pipeline tests
-- [ ] `backend/main.py`
+- [x] `backend/main.py`
     - `GET /api/health`
     - `POST /api/grade` (toy hardcoded passage + key, wired to grading.py + csm.py)
     - manual test: submit toy pinyin, inspect DB state before/after
@@ -41,6 +41,13 @@
     - current table (389 entries) was Claude-generated and is unverified; PRD §XIX.4 scopes a bounded ~100-entry table
     - derive it from multi-reading entries in `hsk30.txt` via a prep script (same pattern as `prepare_hsk30.py`), so the table has provenance by construction
     - add tests for the derivation
+- answer-key serialization: same-reading / different-sense resolution
+    - `hsk_vocab` splits entries by sense, not just reading (e.g. 好 → 3384 hao3 L1 Adj, 3385 hao3 L2 Adv, 3386 hao4 L4 V)
+    - grading treats same-reading IDs as equivalent, but CSM tracks each `vocab_id` separately in `user_vocab`
+    - designated frontier/new words already carry a known `vocab_id`; ambiguity only arises for words Claude uses incidentally
+    - decide a deterministic tie-break rule for picking the ID
+- `Passages` table: add a passage-text column
+    - `answer_key` is punctuation-stripped vocab IDs, so the displayed passage (with punctuation) can't be reconstructed from it
 - `backend/main.py`
     - `POST /api/fpg` route
     - integration test: real Claude passage generation end to end into DB
@@ -56,6 +63,11 @@
     - color-coded char comparison + promotion/demotion summary render
 - shared CSS pass across all three pages
 - optional: frontend length-precheck before POST (PRD §VIII)
+
+*Tech debt (address before `user_vocab` holds real progress):*
+- `data/seed.py` is not idempotent: re-running duplicated the entire `hsk_vocab` table (22,182 rows vs. 11,091)
+    - fix: `UNIQUE` constraint on the columns that actually identify an entry (word + reading alone isn't enough, see 好 above) + insert-or-ignore, or a guard clause
+    - see TODO in `data/seed.py`
 
 *Deferred (post-PoC):*
 - `GET /api/vocab` (open AVD endpoint)

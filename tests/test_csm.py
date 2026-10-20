@@ -38,7 +38,7 @@ def test_session_factory(monkeypatch):
 
 # --- Scenario 1: everything correct - points +1 across the board, promotions where applicable ---
 USER_ID_1 = 1
-starting_rows_1 = [
+starting_user_vocab_rows_1 = [
     # (vocab_id, status_tier, points)
     (
         1,
@@ -49,6 +49,14 @@ starting_rows_1 = [
     (3, StatusTier.SOLID, 4),  # one more correct hits the SOLID ceiling (5) -> promote
     (4, StatusTier.MASTERED, 0),  # ceiling is infinite -> never promotes further
 ]
+
+starting_hsk_rows_1 = [
+    (1, "我", "wo3", 1, "-"),
+    (2, "是", "shi4", 1, "-"),
+    (3, "中", "zhong1", 1, "-"),
+    (4, "人", "ren2", 1, "-"),
+]
+
 vocab_error_list_1 = [
     VocabUnit(
         vocab_id=1, chars=("我",), pinyin=("wo3",), error_type=(PinyinError.CORRECT,)
@@ -80,12 +88,20 @@ expected_final_rows_1 = [
 
 # --- Scenario 2: mix of slight and severe errors across starting tiers ---
 USER_ID_2 = 1
-starting_rows_2 = [
+starting_user_vocab_rows_2 = [
     (5, StatusTier.FAMILIAR, 1),  # severe (FORGOT)
     (6, StatusTier.SOLID, 3),  # slight (TYPO)
     (7, StatusTier.LEARNING, 1),  # severe (TONE_ERROR)
     (8, StatusTier.MASTERED, 0),  # severe (SKIPPED)
 ]
+
+starting_hsk_rows_2 = [
+    (5, "女", "nv3", 1, "-"),
+    (6, "山", "shan1", 1, "-"),
+    (7, "双", "shuang1", 1, "-"),
+    (8, "穷", "qiong2", 1, "-"),
+]
+
 vocab_error_list_2 = [
     VocabUnit(
         vocab_id=5, chars=("女",), pinyin=("nv3",), error_type=(PinyinError.FORGOT,)
@@ -122,11 +138,12 @@ expected_final_rows_2 = [
 
 # B) Parametrization
 @pytest.mark.parametrize(
-    "user_id, starting_rows, vocab_error_list, expected_promo_demo, expected_final_rows",
+    "user_id, starting_user_vocab_rows, starting_hsk_rows, vocab_error_list, expected_promo_demo, expected_final_rows",
     [
         pytest.param(
             USER_ID_1,
-            starting_rows_1,
+            starting_user_vocab_rows_1,
+            starting_hsk_rows_1,
             vocab_error_list_1,
             expected_promo_demo_1,
             expected_final_rows_1,
@@ -134,7 +151,8 @@ expected_final_rows_2 = [
         ),
         pytest.param(
             USER_ID_2,
-            starting_rows_2,
+            starting_user_vocab_rows_2,
+            starting_hsk_rows_2,
             vocab_error_list_2,
             expected_promo_demo_2,
             expected_final_rows_2,
@@ -147,7 +165,8 @@ expected_final_rows_2 = [
 def test_csm_full_pipe(
     test_session_factory,
     user_id,
-    starting_rows,
+    starting_user_vocab_rows,
+    starting_hsk_rows,
     vocab_error_list,
     expected_promo_demo,
     expected_final_rows,
@@ -155,17 +174,6 @@ def test_csm_full_pipe(
     # (1) seed `starting_rows` into the isolated DB via test_session_factory (a Users row + one
     #     UserVocab row per (vocab_id, status_tier, points) tuple), commit.
     with test_session_factory() as session:
-        rows = [
-            UserVocab(
-                user_id=user_id,
-                vocab_id=vocab_id,
-                status_tier=init_tier,
-                points=streak,
-                last_encounter_time=datetime.now(),
-            )
-            for vocab_id, init_tier, streak in starting_rows
-        ]
-
         new_user = Users(
             user_id=user_id,
             user_name="Stephen Dedalus",
@@ -173,8 +181,32 @@ def test_csm_full_pipe(
             created_time=datetime.now(),
         )
 
-        session.add_all(rows)
+        hsk_rows = [
+            HskVocabulary(
+                vocab_id=vid,
+                simp_man_word=chars,
+                pinyin=py,
+                hsk_level=lvl,
+                trad_man_word=trad,
+            )
+            for vid, chars, py, lvl, trad in starting_hsk_rows
+        ]
+
+        user_vocab_rows = [
+            UserVocab(
+                user_id=user_id,
+                vocab_id=vocab_id,
+                status_tier=init_tier,
+                points=streak,
+                last_encounter_time=datetime.now(),
+            )
+            for vocab_id, init_tier, streak in starting_user_vocab_rows
+        ]
+
         session.add(new_user)
+        session.add_all(hsk_rows)
+        session.flush()
+        session.add_all(user_vocab_rows)
         session.commit()
 
     # (2) call csm(vocab_error_list, user_id) and assert its return value against expected_promo_demo.
@@ -313,6 +345,14 @@ def test_find_ind_chars_demote(
             )
             for vid, word, py, lvl, trad in hsk_rows
         ]
+
+        new_user = Users(
+            user_id=user_id,
+            user_name="Stephen Dedalus",
+            user_email="sdedalus2048@gmail.com",
+            created_time=datetime.now(),
+        )
+
         uservocab_objs = [
             UserVocab(
                 user_id=user_id,
@@ -323,15 +363,10 @@ def test_find_ind_chars_demote(
             )
             for vid, tier, pts in uservocab_rows
         ]
-        new_user = Users(
-            user_id=user_id,
-            user_name="Stephen Dedalus",
-            user_email="sdedalus2048@gmail.com",
-            created_time=datetime.now(),
-        )
 
-        session.add_all(hsk_objs + uservocab_objs)
         session.add(new_user)
+        session.flush()
+        session.add_all(hsk_objs + uservocab_objs)
         session.commit()
 
     # (2) call find_ind_chars_demote(vocab_error_list, user_id) and assert its return value against expected_ind_chars

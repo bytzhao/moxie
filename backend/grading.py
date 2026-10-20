@@ -36,12 +36,42 @@ TOTAL OUTPUT TO FRONTEND:
 """
 
 from datetime import datetime
+from re import findall
+
+from sqlalchemy import select
 
 from backend.csm import csm, find_ind_chars_demote
 from backend.levenshtein import levenshtein, trim_and_seg
-from backend.models import Appearances
+from backend.models import Appearances, HskVocabulary, Passages, PassageState
 from backend.schemas import VocabErrorGroup, VocabUnit
 from data.db import SessionLocal
+
+
+# Possible Passage Errors
+class PassageNotFoundError(Exception):
+    """Exception raised when no passage w/ the ID given exists in the DB."""
+
+    def __init__(self, passage_id, message="No such passage exists w/ id given."):
+        super().__init__(message)
+        self.passage_id = passage_id
+
+
+class PassageUserIDMismatchError(Exception):
+    """Exception raised when passage given exists but has different user ID than given."""
+
+    def __init__(self, passage_id, user_id, message="User ID didn't match DB records."):
+        super().__init__(message)
+        self.passage_id = passage_id
+        self.user_id = user_id
+
+
+class PassageAlreadyGradedError(Exception):
+    """Exception raised when passage ID given corresponds already-graded passage."""
+
+    def __init__(self, passage_id, message="Passage given has already been graded."):
+        super().__init__(message)
+        self.passage_id = passage_id
+
 
 # ------------------------------
 # Hardcoded Vocab & User Response
@@ -66,10 +96,14 @@ USER_ID = 1
 
 class UserPassageLenError(Exception):
     def __init__(
-        self, seg_user_passage, message="User passage length didn't match answer key."
+        self,
+        seg_user_passage,
+        correct_len,
+        message="User passage length didn't match answer key.",
     ):
         super().__init__(message)
         self.seg_user_passage = seg_user_passage
+        self.correct_len = correct_len
 
 
 # ------------------------------
@@ -85,17 +119,21 @@ def grade(
         timestamp = datetime.now()
 
     # (1) Passage DB Fetch & Validation
-    # NOTE: SKIPPED FOR NOW - HSKVocab hard-coded for now bcuz Passages not set-up.
+    # fetch passage answer key and check conditions
+    serial_answer_key = fetch_passage(passage_id, user_id)
+
+    # generate template list[VocabUnit] w/ chars & py seeded
+    vocab_error_list = read_answer_key(serial_answer_key)
 
     # (1.5) - check user_passage len (trim steps) matches EXACTLY DB passage
     len_answer_key = 0
-    for vocab_unit in EX_VOCAB_UNIT_LIST:
+    for vocab_unit in vocab_error_list:
         len_answer_key += len(vocab_unit.chars)
     if not len(trim_and_seg(user_passage)) == len_answer_key:
-        raise UserPassageLenError(trim_and_seg(user_passage))
+        raise UserPassageLenError(trim_and_seg(user_passage), len_answer_key)
 
     # (2) Levenshtein Distance Grading
-    vocab_error_list = levenshtein(user_passage, EX_VOCAB_UNIT_LIST)
+    vocab_error_list = levenshtein(user_passage, vocab_error_list)
 
     # (3) Generate Individual Chars to Demote
     ind_chars_demote = find_ind_chars_demote(vocab_error_list, user_id)
@@ -111,7 +149,62 @@ def grade(
     # TODO (perf): refactor CSM to take condensed dict - no need for its own bespoke dict creation
     promo_demo_dict = csm(vocab_error_list + ind_chars_demote, user_id, timestamp)
 
+    # (6) Mark Passage as Graded
+    # TODO: session-handling for (4)->(6) to account for partial-complete raises
+    mark_passage_graded(passage_id)
+
     return vocab_error_list, promo_demo_dict
+
+
+# ------------------------------
+# Passage Fetch & De-Serialization
+# ------------------------------
+def fetch_passage(passage_id: int, user_id: int):
+    with SessionLocal() as session:
+        passage = (
+            session.query(Passages)
+            .filter(Passages.passage_id == passage_id)
+            .one_or_none()
+        )
+
+        # passage doesn't exist
+        if passage is None:
+            raise PassageNotFoundError(passage_id)
+
+        # user id doesn't match
+        if passage.user_id != user_id:
+            raise PassageUserIDMismatchError(passage_id, user_id)
+
+        # passage has already been graded
+        if passage.state is PassageState.GRADED:
+            raise PassageAlreadyGradedError(passage_id)
+
+        # otherwise, safe to return answer key
+        return passage.answer_key
+
+
+def read_answer_key(answer_key: str):
+    vocab_error_list = []
+
+    # split str via commas into list of int IDs
+    vocab_id_list = answer_key.split(",")
+
+    with SessionLocal() as session:
+        for vocab_id in vocab_id_list:
+            hsk_unit = (
+                session.query(HskVocabulary)
+                .filter(HskVocabulary.vocab_id == int(vocab_id))
+                .first()
+            )
+            vocab_error_list.append(
+                VocabUnit(
+                    vocab_id=hsk_unit.vocab_id,
+                    chars=tuple(hsk_unit.simp_man_word),
+                    pinyin=tuple(findall(r".*?\d", hsk_unit.pinyin.lower())),
+                    error_type=(None,) * len(tuple(hsk_unit.simp_man_word)),
+                )
+            )
+    return vocab_error_list
 
 
 # ------------------------------
@@ -164,4 +257,17 @@ def log_appearances(
             )
 
             session.add(row)
+        session.commit()
+
+
+# ------------------------------
+# Update Passage State
+# ------------------------------
+def mark_passage_graded(passage_id: int):
+    with SessionLocal() as session:
+        passage_select = select(Passages).where(Passages.passage_id == passage_id)
+        passage_row = session.scalars(passage_select).first()
+
+        # can assume passage exists -> edit directly
+        passage_row.state = PassageState.GRADED
         session.commit()

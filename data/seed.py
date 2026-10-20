@@ -24,6 +24,9 @@ USER_NAME = os.getenv("USER_NAME")
 USER_EMAIL = os.getenv("USER_EMAIL")
 
 
+# TODO: seeding should have UNIQUENESS constraint on all attempt-inserted entries
+
+
 # -------------------
 # Full Seed Pipeline
 # -------------------
