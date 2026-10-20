@@ -192,7 +192,7 @@ def trim_and_seg(user_passage: str):
     for char_pinyin in seg:
         not_allowed_chars = (punctuation + whitespace).replace("-", "")
         seg_user_passage.append(
-            char_pinyin.translate(str.maketrans("", "", not_allowed_chars))
+            char_pinyin.translate(str.maketrans("", "", not_allowed_chars)).lower()
         )
 
     # remove any empty pinyin (split() always gives a last one as "")

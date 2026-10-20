@@ -20,8 +20,23 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
 from backend.csm import CSMUpdate
-from backend.grading import UserPassageLenError, grade
-from backend.models import Appearances, Base, HskVocabulary, Users, UserVocab
+from backend.grading import (
+    PassageAlreadyGradedError,
+    PassageNotFoundError,
+    PassageUserIDMismatchError,
+    UserPassageLenError,
+    fetch_passage,
+    grade,
+)
+from backend.models import (
+    Appearances,
+    Base,
+    HskVocabulary,
+    Passages,
+    PassageState,
+    Users,
+    UserVocab,
+)
 from backend.schemas import PinyinError, StatusTier, VocabUnit
 
 PASSAGE_ID = 1
@@ -53,18 +68,41 @@ def test_session_factory(monkeypatch):
 
 # --- Scenario 1: passage too short ---
 user_passage_1 = "wo3 shi4 zhong1"  # only 3 of the 5 required tokens
-starting_user_vocab_rows_1 = []  # never reached - UserPassageLenError raises first
-starting_hsk_vocab_rows_1 = []
+answer_key_1 = "1,2,3,4"
+starting_user_vocab_rows_1 = [
+    (1, StatusTier.FAMILIAR, 0),
+    (2, StatusTier.LEARNING, 1),
+    (3, StatusTier.SOLID, 2),
+    (4, StatusTier.MASTERED, 0),
+]
+starting_hsk_vocab_rows_1 = [
+    (1, "我", "wo3", 1, "-"),
+    (2, "是", "shi4", 1, "-"),
+    (3, "中国", "zhong1guo2", 1, "-"),
+    (4, "人", "ren2", 1, "-"),
+]
 expected_exception_1 = UserPassageLenError
 
 # --- Scenario 2: passage too long ---
 user_passage_2 = "wo3 shi4 zhong1 guo2 ren2 extra1"  # 6 tokens, only 5 expected
-starting_user_vocab_rows_2 = []
-starting_hsk_vocab_rows_2 = []
+answer_key_2 = "1,2,3,4"
+starting_user_vocab_rows_2 = [
+    (1, StatusTier.FAMILIAR, 0),
+    (2, StatusTier.LEARNING, 1),
+    (3, StatusTier.SOLID, 2),
+    (4, StatusTier.MASTERED, 0),
+]
+starting_hsk_vocab_rows_2 = [
+    (1, "我", "wo3", 1, "-"),
+    (2, "是", "shi4", 1, "-"),
+    (3, "中国", "zhong1guo2", 1, "-"),
+    (4, "人", "ren2", 1, "-"),
+]
 expected_exception_2 = UserPassageLenError
 
 # --- Scenario 3: no promotions/demotions - everything correct, but no tier hits its ceiling ---
 user_passage_3 = "wo3 shi4 zhong1 guo2 ren2"  # fully correct
+answer_key_3 = "1,2,3,4"
 starting_user_vocab_rows_3 = [
     # (vocab_id, status_tier, points) - each one at least 1 point below its ceiling
     (1, StatusTier.FAMILIAR, 0),  # ceiling 3, +1 -> 1
@@ -72,7 +110,12 @@ starting_user_vocab_rows_3 = [
     (3, StatusTier.SOLID, 2),  # ceiling 5, +1 -> 3
     (4, StatusTier.MASTERED, 0),  # ceiling infinite, never promotes further
 ]
-starting_hsk_vocab_rows_3 = []
+starting_hsk_vocab_rows_3 = [
+    (1, "我", "wo3", 1, "-"),
+    (2, "是", "shi4", 1, "-"),
+    (3, "中国", "zhong1guo2", 1, "-"),
+    (4, "人", "ren2", 1, "-"),
+]
 expected_exception_3 = None
 expected_vocab_error_list_3 = [
     VocabUnit(
@@ -112,6 +155,7 @@ expected_appearances_rows_3 = [
 #     AND 国's own standalone char (seeded separately below) should also demote
 # 人 (ren2): correct, doesn't hit its ceiling -> streak increase only, no promotion
 user_passage_4 = "wo3 ge4 zhong1 bu2 ren2"
+answer_key_4 = "1,2,3,4"
 starting_user_vocab_rows_4 = [
     (1, StatusTier.FAMILIAR, 2),  # ceiling 3, +1 -> 3 -> promote to SOLID
     (2, StatusTier.FAMILIAR, 1),  # severe -> demote to LEARNING
@@ -122,7 +166,11 @@ starting_user_vocab_rows_4 = [
 starting_hsk_vocab_rows_4 = [
     # (vocab_id, simp_man_word, pinyin) - standalone entry for 国, separate from
     # vocab_id=3's compound "中国" entry, so find_ind_chars_demote has something to match
-    (11, "国", "guo2"),
+    (1, "我", "wo3", 1, "-"),
+    (2, "是", "shi4", 1, "-"),
+    (3, "中国", "Zhong1Guo2", 1, "-"),
+    (4, "人", "ren2", 1, "-"),
+    (11, "国", "guo2", 1, "-"),
 ]
 expected_exception_4 = None
 expected_vocab_error_list_4 = [
@@ -189,11 +237,12 @@ expected_appearances_rows_4 = [
 
 # B) Parametrization
 @pytest.mark.parametrize(
-    "user_passage, starting_user_vocab_rows, starting_hsk_vocab_rows, expected_exception, "
+    "user_passage, answer_key, starting_user_vocab_rows, starting_hsk_vocab_rows, expected_exception, "
     "expected_vocab_error_list, expected_promo_demo, expected_final_uservocab_rows, expected_appearances_rows",
     [
         pytest.param(
             user_passage_1,
+            answer_key_1,
             starting_user_vocab_rows_1,
             starting_hsk_vocab_rows_1,
             expected_exception_1,
@@ -205,6 +254,7 @@ expected_appearances_rows_4 = [
         ),
         pytest.param(
             user_passage_2,
+            answer_key_2,
             starting_user_vocab_rows_2,
             starting_hsk_vocab_rows_2,
             expected_exception_2,
@@ -216,6 +266,7 @@ expected_appearances_rows_4 = [
         ),
         pytest.param(
             user_passage_3,
+            answer_key_3,
             starting_user_vocab_rows_3,
             starting_hsk_vocab_rows_3,
             expected_exception_3,
@@ -227,6 +278,7 @@ expected_appearances_rows_4 = [
         ),
         pytest.param(
             user_passage_4,
+            answer_key_4,
             starting_user_vocab_rows_4,
             starting_hsk_vocab_rows_4,
             expected_exception_4,
@@ -243,6 +295,7 @@ expected_appearances_rows_4 = [
 def test_grade_full_pipe(
     test_session_factory,
     user_passage,
+    answer_key,
     starting_user_vocab_rows,
     starting_hsk_vocab_rows,
     expected_exception,
@@ -261,11 +314,25 @@ def test_grade_full_pipe(
                 vocab_id=vid,
                 simp_man_word=chars,
                 pinyin=py,
-                hsk_level=1,
-                trad_man_word="",
+                hsk_level=lvl,
+                trad_man_word=trad,
             )
-            for vid, chars, py in starting_hsk_vocab_rows
+            for vid, chars, py, lvl, trad in starting_hsk_vocab_rows
         ]
+
+        new_user = Users(
+            user_id=USER_ID,
+            user_name="Stephen Dedalus",
+            user_email="sdedalus@gmail.com",
+            created_time=TEST_TIMESTAMP,
+        )
+
+        passage_row = Passages(
+            passage_id=PASSAGE_ID,
+            user_id=USER_ID,
+            state=PassageState.SENT_TO_USER,
+            answer_key=answer_key,
+        )
 
         user_vocab_rows = [
             UserVocab(
@@ -277,16 +344,11 @@ def test_grade_full_pipe(
             )
             for vid, tier, pts in starting_user_vocab_rows
         ]
-
-        new_user = Users(
-            user_id=USER_ID,
-            user_name="Stephen Dedalus",
-            user_email="sdedalus@gmail.com",
-            created_time=TEST_TIMESTAMP,
-        )
-
-        session.add_all(hsk_vocab_rows + user_vocab_rows)
         session.add(new_user)
+        session.add_all(hsk_vocab_rows)
+        session.flush()
+        session.add_all(user_vocab_rows)
+        session.add(passage_row)
         session.commit()
 
     # (2) if expected_exception is set, assert grade(...) raises it and stop there.
@@ -332,3 +394,116 @@ def test_grade_full_pipe(
 
             actual_appearances_rows = session.execute(appearance_rows).tuples().all()
             assert expected_appearances_rows == actual_appearances_rows
+
+
+# ---------------
+# Passage Fetch (fetch_passage)
+# ---------------
+# A) Testing Scenarios
+# Each scenario seeds Users + Passages rows only - fetch_passage() should raise before
+# answer_key is ever read, so no HskVocabulary/UserVocab rows are needed.
+#   starting_users_rows:   (user_id, user_name, user_email)
+#   starting_passage_rows: (passage_id, user_id, state, answer_key)
+OTHER_USER_ID = 2
+
+# --- Scenario 1: no passage exists w/ the requested passage_id ---
+# a different passage (id 1) DOES exist, so this checks lookup-by-id, not just "table empty"
+starting_users_rows_f1 = [
+    (USER_ID, "Stephen Dedalus", "sdedalus@gmail.com"),
+]
+starting_passage_rows_f1 = [
+    (1, USER_ID, PassageState.SENT_TO_USER, "1,2,3,4"),
+]
+requested_passage_id_f1 = 99
+requested_user_id_f1 = USER_ID
+expected_exception_f1 = PassageNotFoundError
+
+# --- Scenario 2: passage exists, but belongs to a different user ---
+starting_users_rows_f2 = [
+    (USER_ID, "Stephen Dedalus", "sdedalus@gmail.com"),
+    (OTHER_USER_ID, "Leopold Bloom", "lbloom@gmail.com"),
+]
+starting_passage_rows_f2 = [
+    (PASSAGE_ID, OTHER_USER_ID, PassageState.SENT_TO_USER, "1,2,3,4"),
+]
+requested_passage_id_f2 = PASSAGE_ID
+requested_user_id_f2 = USER_ID
+expected_exception_f2 = PassageUserIDMismatchError
+
+# --- Scenario 3: passage exists, right user, but already graded ---
+# seeded directly as GRADED (simulates a prior submission without running grade() twice)
+starting_users_rows_f3 = [
+    (USER_ID, "Stephen Dedalus", "sdedalus@gmail.com"),
+]
+starting_passage_rows_f3 = [
+    (PASSAGE_ID, USER_ID, PassageState.GRADED, "1,2,3,4"),
+]
+requested_passage_id_f3 = PASSAGE_ID
+requested_user_id_f3 = USER_ID
+expected_exception_f3 = PassageAlreadyGradedError
+
+
+# B) Parametrization
+@pytest.mark.parametrize(
+    "starting_users_rows, starting_passage_rows, requested_passage_id, "
+    "requested_user_id, expected_exception",
+    [
+        pytest.param(
+            starting_users_rows_f1,
+            starting_passage_rows_f1,
+            requested_passage_id_f1,
+            requested_user_id_f1,
+            expected_exception_f1,
+            id="passage not found",
+        ),
+        pytest.param(
+            starting_users_rows_f2,
+            starting_passage_rows_f2,
+            requested_passage_id_f2,
+            requested_user_id_f2,
+            expected_exception_f2,
+            id="passage belongs to different user",
+        ),
+        pytest.param(
+            starting_users_rows_f3,
+            starting_passage_rows_f3,
+            requested_passage_id_f3,
+            requested_user_id_f3,
+            expected_exception_f3,
+            id="passage already graded",
+        ),
+    ],
+)
+
+# C) Function Call
+def test_fetch_passage_errors(
+    test_session_factory,
+    starting_users_rows,
+    starting_passage_rows,
+    requested_passage_id,
+    requested_user_id,
+    expected_exception,
+):
+    with test_session_factory() as session:
+        user_rows = [
+            Users(
+                user_id=uid,
+                user_name=name,
+                user_email=email,
+                created_time=TEST_TIMESTAMP,
+            )
+            for uid, name, email in starting_users_rows
+        ]
+
+        passage_rows = [
+            Passages(passage_id=pid, user_id=uid, state=state, answer_key=key)
+            for pid, uid, state, key in starting_passage_rows
+        ]
+
+        session.add_all(user_rows)
+        session.flush()
+        session.add_all(passage_rows)
+        session.commit()
+
+    with pytest.raises(expected_exception):
+        fetch_passage(requested_passage_id, requested_user_id)
