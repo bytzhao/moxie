@@ -27,6 +27,13 @@
 - October 7th, 2026: slight edits to CSM framework...
     - Learning needs a streak of 3 to promote to Familiar (same as Familiar)
     - CSM protocol for newly-encountered words explicitly defined as promote to Learing base, *regardless* of whether an error was permitted.
+- October 22nd, 2026: reworked the new-vocabulary introduction policy (Section VIII):
+    - the trigger is now an absolute cap on Learning words only, $C_L = 25$, replacing the flat Learning + Familiar thresholds (8 / 15). Familiar words are no longer counted, since they aren't truly new and demotions already refill Learning when the user struggles.
+    - a percentage-of-encountered-words cap was considered and rejected: it grows with AVD size, while the real constraint (how often each Learning word is recycled, ~$C_L / k$ passages) depends on passage throughput.
+    - $C_L = 25$ targets a ~5-passage reappearance gap (3 min, 6–7 max) at ~2 passages/day for the 50–100 and 100–150 length tiers, assuming ~half of targets are Learning (to be verified against the `Appearances` log).
+    - the calibration backlog (a full HSK level tagged Learning at the user's beginning seed) counts as real Learning words, so it acts as an extended placement phase before any new words are introduced.
+    - new words are drawn from the lowest HSK level that still has Not Encountered words; ordering within that level is random for now (frequency-based and decoding-cost ordering logged in `ROADMAP.md`).
+    - fixed the baseline calibration entry in the Decision Log (Section XIX) to match Section VII: below level → Familiar, at level → Learning.
 
 ## I. Content & Objectives
 Broadly, the purpose of Moxie is two-fold:
@@ -171,13 +178,15 @@ When an FPG is called by the user, the target words chosen from the ILS are dete
 3. **100-150 char:** intermediate, longer paragraph - 12-15 chars/words
 4. **150-250 chars:** advanced, multi-paragraph text - 15-20 chars/words
 
-New vocabulary is introduced when the number of Learning + Familiar words in the ILS falls beneath a certain, constant threshold: 8 learning words and 15 familiar words. (*Note: these thresholds are subject to change*). The number of new words introduced depends on how much below the threshold the number of words has fallen, and is capped as follows:
+New vocabulary is introduced when the number of Learning words in the ILS falls beneath a fixed, absolute cap $C_L$. Only Learning words count toward this: Familiar words have already been seen for a while and are not truly "new" anymore. Since a severe error demotes a Familiar word back to Learning, the Learning count naturally swells when the user struggles, pausing new introductions until the backlog is consolidated. The cap is absolute rather than a percentage of encountered words, because the real constraint is how often the recency scheduler can cycle back to each Learning word, which is roughly $C_L / k$ passages for $k$ Learning slots per passage. That depends on passage size and usage frequency, not on how large the encountered vocabulary has grown. A percentage would let the Learning pool grow with the AVD and stretch those short-term intervals. The default is $C_L = 25$, derived as follows: at ~2 passages/day, a Learning word should reappear no sooner than every 3 passages and no later than every 6–7, with ~5 as the target. Assuming roughly half of a passage's target words are Learning, the 50–100 tier gives $k \approx 4.5$ (gap $\approx 5.5$) and the 100–150 tier gives $k \approx 6.5$ (gap $\approx 4$), both inside that window. (*Note: the "half are Learning" assumption is the weakest input and should be checked against the `Appearances` log once FPG is live. Because baseline calibration tags an entire HSK level as Learning (~950–1,100 words), the Learning count starts far above any reasonable $C_L$, so no new words are introduced until that backlog drains. This is accepted as an extended placement phase, and the exact value of $C_L$ can be tuned from real usage before it ever binds.*)
+
+The number of new words introduced equals the deficit $C_L - (\text{\# Learning words})$, capped per passage length as follows:
 1. **30-50 char:** 1 new char/word
 2. **50-100 chars:** 2 new chars/words
 3. **100-150 chars:** 3 new chars/words
 4. **150-250 chars:** 4 chars/words
 
-For example, if a certain user's ILS has only 5 learning words and 14 familiar words, they are experiencing a deficit of 4 new words. If they choose the most advanced length of 150-250 words, all 4 new words will be chosen, and the rest of the 11-16 existing words will be pulled from the sorted-by-recency AVD. In contrast, if they choose the shortest length, only 1 new word will be chosen, respecting the cap. As appropriate, newly introduced words are simply picked randomly from the family of vocabulary of the same HSK-designed proficiency level of the user (*Note: this separate proficiency level is mostly unrelated to Moxie. It is simply a tracking tool to assist in assigning new words.*)
+For example, with $C_L = 25$, if a certain user's ILS has 21 Learning words, they are experiencing a deficit of 4 new words. If they choose the most advanced length of 150-250 words, all 4 new words will be chosen, and the rest of the 11-16 existing words will be pulled from the sorted-by-recency AVD. In contrast, if they choose the shortest length, only 1 new word will be chosen, respecting the cap. As appropriate, newly introduced words are simply picked randomly from the lowest HSK level that still has Not Encountered words. (*Note: this separate proficiency level is mostly unrelated to Moxie. It is simply a tracking tool to assist in assigning new words.*)
 
 A stripped down dictionary of all of the user's encountered (Mastered, Solid and Familiar) words is attached along with a dictionary of chosen frontier words and new words if applicable to the model. This second dict is numbered with the *maximum* number of vocab words allowed per the user-defined passage length. Both dicts simply map characters to pinyin. The model is then prompted with a message similar to the following:
 
@@ -415,6 +424,8 @@ Each entry records what was decided, why, and what evidence would justify reopen
         - **Revisit if:** the candidate pool grows large enough for per-generation aggregation to cost measurably.
     - ***Review events are logged from day one.*** Every unit records word, session, timestamp, time since prior review, status, outcome — needed for encounter density and future-scheduler training.
         - **Revisit if:** never. The log is cheap and irreplaceable.
+    - ***New-word introduction is gated by an absolute cap on Learning words only.*** Replaces the earlier Learning + Familiar flat thresholds (8 / 15). Familiar words aren't new, and demotions refill Learning on their own, so Learning alone works as a struggle signal. A percentage-of-encountered cap was considered and rejected: it scales with AVD size, while the binding constraint (how often each Learning word gets recycled) scales with passage throughput. The calibration backlog (a full HSK level tagged Learning) is treated as real Learning words, not excluded from the count. $C_L = 25$: targets a ~5-passage reappearance gap (3 minimum, 6–7 maximum) at ~2 passages/day for the 50–100 and 100–150 length tiers. Initial instinct, to be tuned from use.
+
     - ***Scheduler is hand-designed now, fitted later.*** Half-life regression needs review history; none exists yet. Hand-design intervals, routed through named constants for later fitted values.
         - **Revisit if:** enough review history accumulates — target phase 3.
 
@@ -425,7 +436,7 @@ Each entry records what was decided, why, and what evidence would justify reopen
         - **Revisit if:** the table grows unmaintainable, or model pinyin proves unreliable on polyphones.
     - ***No dedicated function-word allowlist; HSK coverage plus baseline calibration already handles it.*** 的, 了, 是, 不, 我 and nearly every other common grammatical particle are individual entries in the HSK 3.0 list already, confirmed directly against `hsk30.txt` — the sole gap being 呗, which is simply left out of the AVD entirely rather than special-cased. Combined with baseline calibration (bulk-assigning at-or-below-level words to Familiar/Learning at seed time), these words are marked encountered before FPG ever runs, under the standing assumption that phase-1 usage always starts with real vocabulary momentum (>150 encountered words) rather than a true cold start. A dedicated allowlist mechanism would only earn its keep for a genuinely new user with near-empty AVD history — deferred along with general new-user onboarding.
         - **Revisit if:** cold-start onboarding for a user without existing momentum gets built, or a future gap word (beyond 呗) turns out to be both missing from HSK and load-bearing for basic sentence formation.
-    - ***Baseline calibration precedes first use.*** Seeding all words as Not Encountered takes hundreds of sessions to reach my level, and makes session one ungenerateable. Bulk-assign by HSK level: at/below → Familiar/Solid, one above → Learning, rest → Not Encountered.
+    - ***Baseline calibration precedes first use.*** Seeding all words as Not Encountered takes hundreds of sessions to reach my level, and makes session one ungenerateable. Bulk-assign by HSK level: at/below → Familiar/Solid, level entered → Learning, rest → Not Encountered.
         - **Revisit if:** bulk assignment proves badly miscalibrated — passages feel trivial or unreadable early on.
 
 5. **Architecture and stack:**

@@ -30,6 +30,13 @@
     - Relative Interaction Pressure $I$ (encounter density derived from `Appearances` log, PRD Decision Log §3)
     - Historical Memory $H$ (weighted memory-score decay, 0.5-seed edge case)
     - combine into $R$, sort AVD, select frontier + new-word set per length-tier caps (PRD §VIII)
+- new-word selection: pool + ordering
+    - pool: lowest HSK level that still has Not Encountered words (calibration tags the user's own level Learning, so this starts at level + 1)
+    - ordering within the pool is undecided; random is the placeholder
+    - candidate: `frequency` column on `hsk_vocab`, populated at seed time from an external corpus list
+        - jieba `dict.txt` (word / count / POS per line, simplified)
+        - SUBTLEX-CH (subtitle-corpus word frequencies)
+        - HSK entries missing from the list need a fallback (rank last, or random among themselves)
 - `backend/llm.py`
     - thin Claude API call wrapper
 - `backend/generation.py` — orchestration
@@ -72,3 +79,7 @@
 *Deferred (post-PoC):*
 - `GET /api/vocab` (open AVD endpoint)
 - dashboard page, usage history page
+- decoding-cost ordering for new words
+    - rank candidates by how many characters/readings they add that the user doesn't already decode (学生 is ~free if 学 and 生 are known)
+    - open design question: prefer low-cost (easy on-ramp) or high-cost (more new decoding material)?
+    - computed at selection time from the AVD, not stored, so no upkeep as words are encountered
