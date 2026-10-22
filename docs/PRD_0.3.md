@@ -112,16 +112,16 @@ Separately, a list of complete appearance tuples - storing (1) word ID, (2) sess
 At the beginning of the FPG process, **recency scores** are calculated for each vocabulary unit that has been encountered (excluding words carrying 'Not Encountered' status). These scores are comprised of three separate components, both quantitatively derived and intuitively motivated below. Each component is a normalized value between 0 and 1. 
 1. **Time Pressure:** score that, depending on when was the last interaction, enumerates the raw priority of appearance irrespective to other words
     - Given the timestamp of the last interaction, $\Delta t$ is promptly calculated
-    - The exponential quantity $1 - e^(\lambda\Deta t)$ relates this latent time interval to a pressure score normalized between 0 and 1
-        - $\lambda$ is denoted by $\frac{1}{c_s}$ where $c_s$ is a status coefficient given by:
-        1. Learning - `1` (`2^0`)
-        2. Familiar - `2` (`2^1`)
-        3. Solid - `4` (`2^2`)
-        4. Mastered - `8` (`2^3`)
+    - The exponential quantity $1 - e^{-\lambda \Delta t}$ relates this latent time interval to a pressure score normalized between 0 and 1
+        - $\lambda$ is given by $\lambda = \frac{1}{c_s}$, where $c_s$ is a status coefficient given by:
+        1. Learning - $c_s = 1$ ($2^0$)
+        2. Familiar - $c_s = 2$ ($2^1$)
+        3. Solid - $c_s = 4$ ($2^2$)
+        4. Mastered - $c_s = 8$ ($2^3$)
         - This value allows for the time pressure to be eased depending on the user's status: higher mastery of the word implies a greater length of exposure, higher count of session encounters, and hence justifies a longer time interval before retesting. The opposite for new words is likewise true.
     - Therefore:
     $$
-    T = 1 - e^-(\lambda\Delta t)
+    T = 1 - e^{-\lambda \Delta t}
     $$
     - Immediately following the baseline calibration, the last interaction takes the timestamp of calibration, used to calculate $\Delta t$ until the first appearance has happened.
     - $\Delta t$ is stored as a decimal number of days.
@@ -134,14 +134,19 @@ At the beginning of the FPG process, **recency scores** are calculated for each 
     $$
 
 3. **Historical Memory:** score enumerates the user's encounter history of the word, weighing encounters based on recency
-    - Given the user's history with the word (*either constant # of N most recent appearances or entire kept history*), a historical memory $M$ is constructed by the complement to the weighted sum of memory scores aggregated by dividing by the sum of the time interval weights:
+    - Given the user's $n$ most recent appearances of the word (*capped at $n \le 10$*), a historical memory $H$ is constructed by the complement to the weighted sum of memory scores aggregated by dividing by the sum of the recency weights:
     $$
-    H = 1 - \frac{\sum_{i=1}^{n} w_i * E_i}{\sum_{i=1}^{n} w_i}
+    H = 1 - \frac{\sum_{i=1}^{n} w_i E_i}{\sum_{i=1}^{n} w_i}
     $$
-    - $w_i$ denotes a time interval weight applied to each term denoted by $e^-(\Delta t_i)$
+    - $w_i$ denotes a recency weight determined solely by the appearance's ordinal position, where $i = 1$ is the most recent appearance:
+    $$
+    w_i = r^{\,i-1}, \quad 0 < r < 1 \quad (\text{default } r = 0.8)
+    $$
+    - Each weight is a fixed fraction $r$ of the one after it, so the most recent appearance always carries $w_1 = 1$. Weights are independent of wall-clock time; the time gap is handled entirely by Time Pressure, so a long break is not penalized twice.
+    - History is capped at the 10 most recent appearances. Since $\sum_{i=1}^{\infty} r^{\,i-1} = \frac{1}{1-r}$ converges, older appearances contribute little anyway: at $r = 0.8$, the 10th most recent carries $w_{10} = 0.8^{9} \approx 0.13$.
     - $E_i$ denotes the memory score stored directly in the appearance database
 
-    - *Edge case:* immediately following callibration of a word, the user has not had a formal encounter of the word. This is mediated by seeding a default, value of `H = 0.5`. This is immediately overwritten after the first interaction, after which this mechanism should work perfectly.
+    - *Edge case:* immediately following callibration of a word, the user has not had a formal encounter of the word. This is mediated by seeding a default value of $H = 0.5$. This is immediately overwritten after the first interaction, after which this mechanism should work perfectly.
 
 These three components are combined to calculate an average recency score $R$:
 $$
