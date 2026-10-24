@@ -316,6 +316,7 @@ def test_grade_full_pipe(
                 pinyin=py,
                 hsk_level=lvl,
                 trad_man_word=trad,
+                sense="",  # sense is irrelevant to grading/CSM
             )
             for vid, chars, py, lvl, trad in starting_hsk_vocab_rows
         ]

@@ -51,17 +51,44 @@ def level_rank(hsk_level):
     return int(hsk_level.split("-")[0])
 
 
+def dedupe_senses(entries):
+    """
+    Collapses entries that share the same pinyin and differ only on sense (pos).
+    Within each same-pinyin group:
+        1. blank-sense entries are dropped if a non-blank one exists
+        2. among entries with the SAME sense, only the lowest HSK level is kept
+    Entries with a unique pinyin are untouched (blank sense included).
+    """
+    by_pinyin = {}
+    for entry in entries:
+        by_pinyin.setdefault(entry.pinyin, []).append(entry)
+
+    kept = []
+    for group in by_pinyin.values():
+        if len(group) > 1 and any(e.pos for e in group):
+            group = [e for e in group if e.pos]
+
+        lowest_by_sense = {}
+        for entry in group:
+            current = lowest_by_sense.get(entry.pos)
+            if current is None or level_rank(entry.level) < level_rank(current.level):
+                lowest_by_sense[entry.pos] = entry
+        kept.extend(lowest_by_sense.values())
+    return kept
+
+
 def seed_hsk_vocab(session):
-    """One row per (word, reading) pair already parsed into HSK_VOCAB."""
+    """One row per (word, reading, sense) triple already parsed into HSK_VOCAB."""
     for word, entries in HSK_VOCAB.items():
-        # go through individual HskEntrys
-        for entry in entries:
+        # go through individual HskEntrys, collapsing sense-only duplicates first
+        for entry in dedupe_senses(entries):
             session.add(
                 HskVocabulary(
                     simp_man_word=word,
                     pinyin=entry.pinyin,
                     hsk_level=entry.level,
                     trad_man_word=entry.traditional,
+                    sense=entry.pos,  # part of speech; "" when hsk30.txt leaves it blank
                 )
             )
     session.commit()

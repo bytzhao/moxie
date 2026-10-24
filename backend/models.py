@@ -37,6 +37,7 @@ class HskVocabulary(Base):
     pinyin: Mapped[str]
     hsk_level: Mapped[str]
     trad_man_word: Mapped[str]
+    sense: Mapped[str]
 
 
 class UserVocab(Base):
