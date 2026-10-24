@@ -34,6 +34,22 @@
     - the calibration backlog (a full HSK level tagged Learning at the user's beginning seed) counts as real Learning words, so it acts as an extended placement phase before any new words are introduced.
     - new words are drawn from the lowest HSK level that still has Not Encountered words; ordering within that level is random for now (frequency-based and decoding-cost ordering logged in `ROADMAP.md`).
     - fixed the baseline calibration entry in the Decision Log (Section XIX) to match Section VII: below level → Familiar, at level → Learning.
+- October 23rd, 2026: pinned down frontier-word selection and validation (Sections VII, VIII, XI, XIII, XIX):
+    - **frontier words** are now defined explicitly: $M$ new words first, then the top $N - M$ encountered words by recency (any status), where $N$ is the tier maximum. The tier minimum is the validation floor.
+    - recency sort is *descending* (high $R$ = most in need of review); ties are broken randomly, since `hsk30.txt` gives no order within a level. $D_e = 0$ when there have been zero FPGs.
+    - the encountered list and frontier list sent to the model partition the user's known words (plus new words). Only the words are sent, without pinyin.
+    - the frontier minimum is counted after segmentation; new words count toward it but are not separately required. Possible segmentation masking is logged as a known risk.
+    - out-of-list validation explicitly covers both hallucinated non-HSK units and valid-but-unencountered HSK units.
+    - new words that appear in the passage are sent to the frontend with their resolved pinyin as hints, a scoped exception to "answer keys never leave the server". The Not Encountered → Learning flip happens at grading, only for new words that appeared.
+    - prompt wording updated: frontier words are no longer described as "learning" words, and the no-new-vocab rule now refers to the two lists.
+- October 24th, 2026: rebuilt the FPG validation pipeline around vocab IDs (Sections VIII, IX, XII):
+    - **reverses** the October 23rd "words only, no pinyin" decision: both lists now go to the model with pinyin, so it knows which reading of a string is allowed.
+    - validation is split into string-level checks (hallucinated, not encountered; reject-only) after segmentation, and ID-level checks (ineligible reading, frontier count) after ID resolution. The frontier count now happens at the very end, on distinct frontier IDs.
+    - pinyin and sense ambiguity are resolved in one model call with numbered candidates drawn from *all* HSK readings, so an ineligible reading is caught rather than silently forced into an eligible one. Sense-only ambiguity with exactly one eligible candidate is resolved without asking the model.
+    - `hsk_vocab` gains a `sense` column (part of speech); sense-only duplicates are collapsed at seed time (4 entries removed).
+    - the retry loop is stateless: an edited passage reruns steps 4–6 from scratch.
+    - sense-aware validation deferred.
+    - added the identity model, data-structure table (static unit index S1; per-FPG P1–P4) and step-by-step technical pipeline (VIII.A–C). Prompts carry pinyin *and* sense; resolution returns option numbers, never raw IDs; `polychars.txt` superseded by S1.
 
 ## I. Content & Objectives
 Broadly, the purpose of Moxie is two-fold:
@@ -134,7 +150,7 @@ At the beginning of the FPG process, **recency scores** are calculated for each 
     - $\Delta t$ is stored as a decimal number of days.
 
 2. **Relative Interaction Pressure:** score that, depending on the density of appearance in the most recent 50 FPGs, enumerates the relative priority of this word to others
-    - An Encounter Density score $D_e$ is calculated as the appearance percentage in the last 50 FPGs, stored as a probability between 0 and 1 (*if the total history contains less than 50 total sessions, the maximum session total is simply taken*)
+    - An Encounter Density score $D_e$ is calculated as the appearance percentage in the last 50 FPGs, stored as a probability between 0 and 1 (*if the total history contains less than 50 total sessions, the maximum session total is simply taken; if there have been zero FPGs in total, $D_e = 0$, so $I = 1$*)
     - The Relative Interaction Pressure is simply:
     $$
     I = 1 - D_e
@@ -160,7 +176,7 @@ $$
 R = \frac{T + I + H}{3}
 $$
 
-All vocabulary units are sorted based on their recency scores, and a number N are chosen from those with the N highest scores.
+All encountered vocabulary units (every status except Not Encountered) are sorted by recency score in *descending* order, since a high $R$ means the unit most needs review. The top of this list fills the frontier slots left over after new words are allotted (Section VIII), regardless of status. Status is not filtered on, because the status coefficient $c_s$ in Time Pressure already biases the ranking toward less-mastered words. Ties are broken randomly. Ties are expected right after calibration: every calibrated word shares the same $\Delta t$, $D_e = 0$ and the seeded $H = 0.5$, so they all have the same $R$. `data/hsk30.txt` tags each entry with an HSK level only and gives no order within a level, so there is no finer HSK ordering to break ties with.
 
 It is inevitable that certain characters will be represented multiple times in the AVD, both as individal units as well as parts of other compound words. To sync the user's progress passage to passage, specifically *demotions* to characters in compound words will be mirrored with exact CSM protocol on the individual char itself, and ONLY when the pinyin is an exact match. Promotions will not reflect at all, since recognizing a character in one context does not guarantee recognition in another. Likewise, the converse, namely promotion or demotion of individual characters, will not reflect at all on any compound words that char is a part of. Carrying this to the appearance database, appearances of individual characters will be logged for every appearance of a compound word containing that character, granted that the pinyin is the same. The converse is *not* true.
 
@@ -172,11 +188,17 @@ To calibrate a baseline literacy for the user at the absolute start of usage, th
 
 
 ## VIII. FPG Specifications
-When an FPG is called by the user, the target words chosen from the ILS are determined by pre-calculated and stored recency scores. The words are sorted by recency, and depending on the user-defined passage length, a certain number are chosen for the passage:
+When an FPG is called by the user, a set of **frontier words** is chosen from the ILS. These are the words the passage is built around. The user-defined passage length sets a range of frontier words per tier, listed below. The *maximum* of the range, $N$, is how many frontier words are selected and sent to the model. The *minimum* is the floor the validated passage must reach.
 1. **30-50 chars:** 2-3 short sentences - 4-5 chars/words
 2. **50-100 chars:** succinct paragraph - 8-10 chars/words
 3. **100-150 char:** intermediate, longer paragraph - 12-15 chars/words
 4. **150-250 chars:** advanced, multi-paragraph text - 15-20 chars/words
+
+Selection happens in two steps, new words first:
+1. **New words:** $M$ new words are allotted, where $M$ is the Learning deficit capped per tier (see below). $M$ may be 0.
+2. **Recency fill:** the remaining $N - M$ slots are filled from the top of the descending recency list (Section VII).
+
+The frontier set is therefore the new words plus the top $N - M$ encountered words by recency. Frontier words come from these two groups only.
 
 New vocabulary is introduced when the number of Learning words in the ILS falls beneath a fixed, absolute cap $C_L$. Only Learning words count toward this: Familiar words have already been seen for a while and are not truly "new" anymore. Since a severe error demotes a Familiar word back to Learning, the Learning count naturally swells when the user struggles, pausing new introductions until the backlog is consolidated. The cap is absolute rather than a percentage of encountered words, because the real constraint is how often the recency scheduler can cycle back to each Learning word, which is roughly $C_L / k$ passages for $k$ Learning slots per passage. That depends on passage size and usage frequency, not on how large the encountered vocabulary has grown. A percentage would let the Learning pool grow with the AVD and stretch those short-term intervals. The default is $C_L = 25$, derived as follows: at ~2 passages/day, a Learning word should reappear no sooner than every 3 passages and no later than every 6–7, with ~5 as the target. Assuming roughly half of a passage's target words are Learning, the 50–100 tier gives $k \approx 4.5$ (gap $\approx 5.5$) and the 100–150 tier gives $k \approx 6.5$ (gap $\approx 4$), both inside that window. (*Note: the "half are Learning" assumption is the weakest input and should be checked against the `Appearances` log once FPG is live. Because baseline calibration tags an entire HSK level as Learning (~950–1,100 words), the Learning count starts far above any reasonable $C_L$, so no new words are introduced until that backlog drains. This is accepted as an extended placement phase, and the exact value of $C_L$ can be tuned from real usage before it ever binds.*)
 
@@ -186,26 +208,82 @@ The number of new words introduced equals the deficit $C_L - (\text{\# Learning 
 3. **100-150 chars:** 3 new chars/words
 4. **150-250 chars:** 4 chars/words
 
-For example, with $C_L = 25$, if a certain user's ILS has 21 Learning words, they are experiencing a deficit of 4 new words. If they choose the most advanced length of 150-250 words, all 4 new words will be chosen, and the rest of the 11-16 existing words will be pulled from the sorted-by-recency AVD. In contrast, if they choose the shortest length, only 1 new word will be chosen, respecting the cap. As appropriate, newly introduced words are simply picked randomly from the lowest HSK level that still has Not Encountered words. (*Note: this separate proficiency level is mostly unrelated to Moxie. It is simply a tracking tool to assist in assigning new words.*)
+For example, with $C_L = 25$, if a certain user's ILS has 21 Learning words, they are experiencing a deficit of 4 new words. If they choose the most advanced length of 150-250 words, all 4 new words will be chosen, and the remaining $20 - 4 = 16$ frontier slots will be filled from the top of the recency list. In contrast, if they choose the shortest length, only 1 new word will be chosen, respecting the cap, and the remaining $5 - 1 = 4$ slots are filled by recency. As appropriate, newly introduced words are simply picked randomly from the lowest HSK level that still has Not Encountered words. (*Note: this separate proficiency level is mostly unrelated to Moxie. It is simply a tracking tool to assist in assigning new words.*)
 
-A stripped down dictionary of all of the user's encountered (Mastered, Solid and Familiar) words is attached along with a dictionary of chosen frontier words and new words if applicable to the model. This second dict is numbered with the *maximum* number of vocab words allowed per the user-defined passage length. Both dicts simply map characters to pinyin. The model is then prompted with a message similar to the following:
+### VIII.A Identity Model
+Frontier selection, validation and the answer key all work on **vocab IDs**, never on bare Mandarin strings. A vocab ID identifies exactly one (chars, pinyin, sense) triple, where *sense* is the entry's part of speech from `hsk30.txt` (possibly blank). After the seed-time dedupe (Section XII) the mapping ID ↔ triple is a bijection. One *string*, however, can map to several IDs, for two reasons:
+- **Pinyin ambiguity:** different readings, e.g. 长 `chang2` Adj / 长 `zhang3` V. A wrong pick changes the answer-key pinyin and therefore grading.
+- **Sense ambiguity:** same reading, different part of speech, e.g. 会 `hui4` V / 会 `hui4` N. A wrong pick does *not* change grading, since the pinyin is identical. It only changes which `user_vocab` row CSM updates.
 
-`Given ONLY the vocabulary listed here, generate a [insert length range] [Simplified/Traditional] Mandarin character text as a pinyin decoding exercise for an English-speaking Mandarin student. The second list contains "frontier" learning words that MUST be MOSTLY included in the passage (at LEAST [insert minimum value]), while the first list contains solidly learned and familiar words that the user is reasonably comfortable with - these can be used WHENEVER appropriate. Do NOT under ANY CIRCUMSTANCES introduce NEW VOCABULARY at ANY POINT in the passage. This passage should be formatted with NO SPACES.`
+### VIII.B Data Structures
+Structures are either **static** (identical for every user, derived from the global `hsk_vocab` table) or **per-FPG** (derived from `user_vocab` for one generation request). This mirrors the global/per-user split in the schema (Section VII).
 
-Following an AI-generated passage output, the output is quickly scanned for length. Then, a self-written Bidirectional Maximum Matching (BiMM) segmentation function is called to split the passage into the appropriate vocabulary units. 
-Otherwise, if (1) the frontier counter minimum is not reached, the following prompt is given:
+| # | Structure | Shape | Scope | Built | Used in |
+|---|---|---|---|---|---|
+| S1 | Unit index | `str → tuple[(vocab_id, pinyin, sense), ...]` | static | once, at module import, from `hsk_vocab` | steps 4, 5 |
+| P1 | Frontier IDs | `set[vocab_id]`, size $N$ | per-FPG | after recency scoring | steps 3, 6 |
+| P2 | Non-frontier IDs | `set[vocab_id]` | per-FPG | after recency scoring | steps 3, 6 |
+| P3 | New-word pinyin | `dict[vocab_id → pinyin]`, size $M$ | per-FPG | at new-word selection | hints |
+| P4 | Prompt rows | `vocab_id → (chars, pinyin, sense)` for every ID in P1 ∪ P2 | per-FPG | returned by the recency-scoring query (`user_vocab` joined to `hsk_vocab`) | step 3 |
 
-`The number of frontier words is not enough. Edit both the passage to include [integer difference] more, while also KEEPING the existing ones. The same rules from above apply for generation.`
+**S1 — unit index.** Keyed by every distinct `simp_man_word` in `hsk_vocab`. Keys are whole segmented units, e.g. 长大 is its own key, not looked up character by character. Each value holds *every* HSK candidate for that string, with pinyin and sense embedded, so a single lookup supplies everything steps 4–5 need without a second query. `len(value) > 1` means the unit is ambiguous. S1 is built from the **DB**, not from `HSK_VOCAB` (the in-memory parse of `hsk30.txt`), because vocab IDs exist only in the DB and the dedupe happened only in the DB. S1 supersedes `data/polychars.txt`: a reading with no HSK entry has no vocab ID and could never be serialized anyway.
 
-If (2) new vocab is introduced or any vocab units are unknown/not included in the AVD, the following prompt is given:
+**P1 / P2 — eligible ID sets.** The *eligible set* $E = P1 \cup P2$ is every encountered ID plus the $M$ new IDs. Invariants:
+- $P1 \cap P2 = \emptyset$. The two prompt lists partition $E$.
+- $|P1| = N$ (tier maximum). P1 contains all of P3's keys.
+- P2 = encountered IDs − P1.
 
-`Vocab unit(s) [list of all vocab units not existent in AVD] do not exist in the library. Diagnose and edit the passage to fix these mistakes. The same rules apply for generation as before.`
+**P3 — new-word pinyin.** Keys are a subset of P1. Kept separately because new-word hints (below) need to know which resolved IDs are new, and that can't be recovered from P1 alone.
 
-If both failure modes are violated, a combination of both is consolidated in one prompt. If this error loop continues two times with Sonnet failing to remedy the failing passage, FPG is stopped entirely and an error message is communicated back to the user.
+**Eligible strings are not stored.** Whether a string has any eligible reading is computed on the fly: look up the unit in S1 and test whether any candidate ID is in $E$. This avoids a third per-FPG structure that would have to stay consistent with P1/P2.
 
-Once every word in the passage has been validated (no new vocabulary is introduced and the # of frontier/new words is appropriate), pinyin is assigned through dictionary mapping with the loaded `data/hsk30.txt`. Since segmented units may still be single polyphonic characters or polyphonic compounds that have multiple pinyin readings, these are then prompted to Claude to ask which of the possible readings is correct in context:
+### VIII.C Pipeline
+**Step 1: frontier selection.** $M$ new IDs are drawn (Section VIII above), filling P3. The top $N - M$ encountered IDs by descending $R$ fill the rest of P1. All remaining encountered IDs form P2.
 
-`The following words/chars have multiple possible pinyin readings:[insert word/char #1] - is it [option 1] or [option 2] or ...? [insert word/char #2] - is it [option 1] or [option 2] or ...? Depending on the context of the passage, tell me which pinyin reading is accurate.`
+**Step 2: prompt rows.** P4 supplies (chars, pinyin, sense) for every ID in $E$, rendered as two lists: non-frontier (P2) and frontier (P1). Blank senses are omitted from the rendering.
+
+**Step 3: generation.** Both lists go to the model with **pinyin and sense**, so each listed item names exactly one vocab ID. Pinyin tells the model *which reading* is allowed (a frontier 长 `zhang3` is otherwise indistinguishable from 长 `chang2`). Sense keeps the partition intact: if 会 `hui4` V is frontier and 会 `hui4` N is not, dropping sense would list 会 `hui4` in *both* lists. Sending all fields for every entry was chosen over a rule for which entries need them: one uniform rule is simpler, and token cost is negligible (Section XV). The model is then prompted with a message similar to the following:
+
+`Given ONLY the vocabulary listed here, generate a [insert length range] [Simplified/Traditional] Mandarin character text as a pinyin decoding exercise for an English-speaking Mandarin student. Each word is listed with its pinyin reading and, where given, its part of speech; use each word ONLY in that reading and sense. The second list contains "frontier" words that MUST be MOSTLY included in the passage (at LEAST [insert minimum value]), while the first list contains words the user already knows - these can be used WHENEVER appropriate. Do NOT under ANY CIRCUMSTANCES use any vocabulary, reading or sense that is not in one of these two lists, at ANY POINT in the passage. This passage should be formatted with NO SPACES.`
+
+**Step 4: segmentation + string-level validation.** The output is quickly scanned for length. Non-Han characters are stripped, and the self-written Bidirectional Maximum Matching (BiMM) segmenter splits the passage into units by maximum-matching against the *whole* HSK 3.0 word list. For each unit $u$:
+- (a) **Hallucinated:** $u \notin$ S1.
+- (b) **Not encountered:** $u \in$ S1, but no candidate ID of $u$ is in $E$.
+
+These checks are **reject-only**. Passing (b) means only that *some* reading of $u$ is eligible, not that the one used is. No frontier check happens here: frontier membership is per ID, so it can't be counted until step 5.
+
+**Step 5: ID resolution.** Each unit is mapped to exactly one vocab ID, using its S1 candidates $C(u)$:
+1. $|C(u)| = 1$: resolved directly.
+2. All of $C(u)$ share one pinyin (sense-only ambiguity) and exactly one candidate is in $E$: pick it **without** a model call. Safe because a wrong sense cannot change the answer-key pinyin.
+3. Otherwise (candidates differ in pinyin, or several same-pinyin candidates are eligible): queue $u$ for the resolution call. The options are **all of $C(u)$**, not just the eligible ones. Restricting options to eligible candidates would silently force an ineligible usage (很长 `chang2` when only 长 `zhang3` is eligible) into the eligible reading. The result would be a wrong answer key, a correct user answer graded severe, and a spurious demotion.
+
+All queued units go in **one** call. Each unit's candidates are numbered $1..k$ with pinyin and sense shown, and the model replies with **option numbers only**. The number is mapped back to a vocab ID locally. Raw IDs are never requested from the model: a mistyped ID is probably another word's valid ID and would pass silently, while an out-of-range number or non-number is caught immediately (*not yet implemented*):
+
+`The following words/chars have multiple possible readings in this passage. For each, reply ONLY with the number of the option that matches its usage in context. [word/char #1] (position [i]): (1) [pinyin] [sense] (2) [pinyin] [sense] ... [word/char #2] ...`
+
+**Step 6: ID-level validation + serialization.** Done in one pass over the resolved ID sequence, using set membership against P1 and $E$ (O(1) each):
+- (c) **Ineligible reading/sense:** resolved ID $\notin E$. Reported as a not-encountered unit, with the reading used. This is what catches the 很长 case.
+- (d) **Frontier count:** the number of *distinct* resolved IDs in P1 must be at least the tier minimum. It cannot exceed the maximum, since $|P1| = N$. New words count like any other frontier ID and are not separately required. A new word the model leaves out was never shown to the user, so it stays Not Encountered.
+
+If both pass, the ordered ID sequence is serialized as the answer key (Section IX), and its pinyin is read off each ID's candidate entry.
+
+(*Known risk:* segmentation may not match what the model intended. For example, a single-character frontier word 学 written inside 学生 segments as 学生, so it does not count toward the frontier minimum. How often this happens is unknown until segmentation is tested against real generated passages.)
+
+**Retry loop.** Steps 4–6 form a stateless validator: it takes a passage and returns valid or a list of errors, and never needs to know about earlier attempts. A failing passage is sent back to the model with an *edit* prompt. Whatever comes back is a brand-new passage that reruns steps 4–6 from scratch, including a fresh resolution call. The only state carried between attempts is the retry count. P1–P4 and S1 do not change between attempts.
+
+If (1) the frontier minimum is not reached (check d), the following prompt is given:
+
+`The number of frontier words is not enough. Edit the passage to include [integer difference] more, while also KEEPING the existing ones. The same rules from above apply for generation.`
+
+If (2) any unit fails checks a–c, the following prompt is given:
+
+`Vocab unit(s) [list of offending units, with the reading used where relevant] are not in the allowed vocabulary. Diagnose and edit the passage to fix these mistakes. The same rules apply for generation as before.`
+
+If both failure modes are violated, a combination of both is consolidated in one prompt. If this error loop continues two times with Sonnet failing to remedy the failing passage, FPG is stopped entirely and an error message is communicated back to the user. (*Open:* whether resolution calls count toward the two-retry budget.)
+
+**New-word pinyin hints.** After step 6, the hint map is the subset of P3 whose IDs appear in the resolved sequence. Since an ID fixes its reading, the hint pinyin is exactly the reading the user will be graded against. A new word has never been seen by the user, so they just copy the hint while decoding. Hints are sent along with the rendered passage (Section XIII). New words are still graded like any other unit, but their CSM outcome is fixed at Learning +0 (Section XI).
+
+(*Deferred:* sense-aware validation, i.e. detecting that a resolved sense doesn't fit its usage, is tabled until segmentation itself becomes sense-aware. *Also deferred:* BiMM matches against `HSK_VOCAB` (file) while S1 comes from the DB. Their word sets are currently identical, because the dedupe removed entries but no word strings, so a single source is logged as a `ROADMAP.md` TODO.)
 
 IMPORTANT: When the user interacts with the prompt, all punctuation and spaces on nonbearing on the real-time tracking mechanism. When the answer is submitted, all except the characters and pinyin are trimmed such that the text is in the same format as the answer key. The user's text is then parsed character-by-character alongside the answer key and the grading is done. Ultimate CSM promotions and demotions are applied on each *unit* that contains a character with flagged errors.
 
@@ -217,7 +295,7 @@ Immediately following the attempted submission of the user, the length of the pi
 
 
 ## IX. Answer Key Pipeline
-As previously stated, during the segmentation & passage validation step of a passage, the passage will be parsed to produce a pinyin text utilizing AVD look-ups. This pinyin answer key is stored in identical format to the passage: a list of all the individual vocab units in order with punctuation cut.
+As previously stated, during the segmentation & passage validation step of a passage, the passage will be parsed to produce a pinyin text utilizing AVD look-ups. The answer key is stored as the ordered sequence of resolved vocab IDs (step 6 of Section VIII), serialized as a string, with punctuation cut. Each ID fixes the unit's characters, pinyin and sense, so the pinyin key is derived from it.
 
 
 ## X. Grading Specifications
@@ -246,7 +324,7 @@ Following a full parsing of the entire text character-by-character, the CSM syst
 ## XI. The CSM System
 The tiered system and promotion schema for correct recognition are awarded as follows:
 1. **Not Encountered:** default status for all vocabulary that has not shown in a passage yet
-    - as soon as user encounters and interacts with a passage containing it, the unit shifts to Learning base
+    - as soon as user encounters and interacts with a passage containing it, the unit shifts to Learning base. The flip happens at grading, and only for new words that actually appeared in the graded passage; a new word chosen for a passage but left out by the model stays Not Encountered
 2. **Learning:** preliminary stage to train user's recognition at short-term intervals
     - to promote to Familiar, users must get the pinyin and tone right **three** times in a row
 3. **Familiar:** secondary stage of recognition, at slightly longer intervals
@@ -275,15 +353,16 @@ The underlying idea of the demotion framework is that due to the FPG schematics 
 
 
 ## XII. Seeding AVD
-The Adaptive Vocabulary Database (AVD) is sourced from the 11,000 word long HSK 3.0 vocabulary list. In contrast with adding words appropriately as the user encounters them, the entire list is instead seeded into the library from the start. An initial baseline calibration is performed with the user's self-reported HSK level. All more advanced words are labeled "Not Encountered" until passage generation has included them, via the algorithm described above in Section VIII.
+The Adaptive Vocabulary Database (AVD) is sourced from the 11,000 word long HSK 3.0 vocabulary list. In contrast with adding words appropriately as the user encounters them, the entire list is instead seeded into the library from the start. Each row is one (word, pinyin, sense) entry, where sense is the entry's part of speech in `hsk30.txt` (blank when the file gives none). Entries that share a word and pinyin and differ only in sense are collapsed at seed time: within such a group, a blank-sense entry is dropped if a non-blank one exists, and among entries with the *same* sense only the lowest HSK level is kept. This removes 4 of 11,091 entries (一下儿, 一会儿, 出口, 称) and leaves (word, pinyin, sense) unique. An initial baseline calibration is performed with the user's self-reported HSK level. All more advanced words are labeled "Not Encountered" until passage generation has included them, via the algorithm described above in Section VIII.
 
 
 ## XIII. API Surface
 The application needs four primary API endpoints that facilitate the user's interaction with the backend:
 1. **FPG Loop:** `POST /api/fpg` (body: passage_length)
     - upon user prompting, runs frontier vocab selection, calls + validates Claude, builds answer key
-    - returns {passage_id, rendered_text, char_count}
-    - answer key stays server-side, waiting for grading
+    - returns {passage_id, rendered_text, char_count, new_word_hints}
+        - `new_word_hints` maps each new word that appears in the passage to its resolved pinyin (Section VIII); it is empty when no new words appear
+    - answer key stays server-side, waiting for grading (new-word hints are the one scoped exception)
 2. **Grading & Feedback Loop:** `POST /api/grade` (body: passage_id & user_pinyin)
     - prior to the start of the grading mechanism, a quick scan for length correctness is applied; a failure there 
     - upon user submission, runs alignment and grading, applies CSM updates to AVD
@@ -447,6 +526,7 @@ Each entry records what was decided, why, and what evidence would justify reopen
     - ***No migration tooling in phase 1.*** Schema churns early. `seed.py` rebuilds from scratch; changes mean deleting the `.db` and re-seeding.
         - **Revisit if:** the first AVD or review-log state worth keeping — trigger for Alembic, once real use begins.
     - ***Answer keys never leave the server.*** API responses are readable in devtools. Passage goes out; pinyin key, segmentation, frontier set stay server-side until grading.
+        - *Scoped exception:* pinyin for new words that appear in the passage is sent along with it (Section VIII), because the user has never seen those words and is meant to copy them. Their CSM outcome is fixed at Learning +0 whatever the user types, so revealing their pinyin cannot be gamed.
         - **Revisit if:** never.
     - ***A passage grades exactly once.*** Re-submission would double-apply CSM updates — a refresh could silently corrupt the AVD.
         - **Revisit if:** a legitimate re-grade case appears — likely a separate non-mutating practice path.

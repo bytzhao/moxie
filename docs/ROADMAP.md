@@ -44,15 +44,16 @@
     - validation loop: length check, frontier-count check, hallucination check, retry prompts, 2-strike abort
     - polyphone resolution pass (bounded table + Claude disambiguation call)
     - write to `Passages` table (answer key, state=SENT_TO_USER)
-- `data/polychars.txt` provenance
-    - current table (389 entries) was Claude-generated and is unverified; PRD §XIX.4 scopes a bounded ~100-entry table
-    - derive it from multi-reading entries in `hsk30.txt` via a prep script (same pattern as `prepare_hsk30.py`), so the table has provenance by construction
-    - add tests for the derivation
-- answer-key serialization: same-reading / different-sense resolution
-    - `hsk_vocab` splits entries by sense, not just reading (e.g. 好 → 3384 hao3 L1 Adj, 3385 hao3 L2 Adv, 3386 hao4 L4 V)
-    - grading treats same-reading IDs as equivalent, but CSM tracks each `vocab_id` separately in `user_vocab`
-    - designated frontier/new words already carry a known `vocab_id`; ambiguity only arises for words Claude uses incidentally
-    - decide a deterministic tie-break rule for picking the ID
+- ~~`data/polychars.txt` provenance~~ — superseded: the static unit index S1 (PRD §VIII.B), built from `hsk_vocab`, replaces `polychars.txt`; remove the file and `POLY_CHARS` from `segmenter.py`
+- answer-key serialization: ID resolution (pinyin + sense) — design resolved in PRD §VIII.A–C
+    - [x] `sense` column on `hsk_vocab`; sense-only duplicates collapsed at seed (`dedupe_senses`, 4 entries)
+    - static unit index S1: unit string → ((vocab_id, pinyin, sense), ...), built once from the DB
+    - per-FPG sets P1 (frontier) / P2 (non-frontier) / P3 (new-word pinyin) / P4 (prompt rows)
+    - `segmenter.py`: move frontier count out of `validate_seg` to after ID resolution; string-level not-encountered check via S1 ∩ eligible set
+    - resolution call: all HSK candidates, numbered options, option-number reply; same-pinyin + single-eligible shortcut skips the call
+- single source of truth for HSK word strings
+    - BiMM matches against `HSK_VOCAB` (from `hsk30.txt`) while S1 is built from the DB; word sets are identical today (dedupe removed no word strings)
+    - point the segmenter at S1's keys so the two can't drift
 - `Passages` table: add a passage-text column
     - `answer_key` is punctuation-stripped vocab IDs, so the displayed passage (with punctuation) can't be reconstructed from it
 - `backend/main.py`
@@ -73,7 +74,7 @@
 
 *Tech debt (address before `user_vocab` holds real progress):*
 - `data/seed.py` is not idempotent: re-running duplicated the entire `hsk_vocab` table (22,182 rows vs. 11,091)
-    - fix: `UNIQUE` constraint on the columns that actually identify an entry (word + reading alone isn't enough, see 好 above) + insert-or-ignore, or a guard clause
+    - fix: `UNIQUE` constraint on the columns that actually identify an entry — (word, pinyin, sense) is now unique after `dedupe_senses` — + insert-or-ignore, or a guard clause
     - see TODO in `data/seed.py`
 
 *Deferred (post-PoC):*
