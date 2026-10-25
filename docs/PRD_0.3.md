@@ -226,13 +226,19 @@ Structures are either **static** (identical for every user, derived from the glo
 
 | # | Structure | Shape | Scope | Built | Used in |
 |---|---|---|---|---|---|
-| S1 | Unit index | `str → tuple[(vocab_id, pinyin, sense), ...]` | static | once, at module import, from `hsk_vocab` | steps 4, 5 |
+| S1 | Unit index | `str → tuple[(vocab_id, pinyin, sense), ...]` | static | once per server process, by a cached builder in `generation.py`, from `hsk_vocab`; passed down as an argument | steps 4, 5 |
 | P1 | Frontier IDs | `set[vocab_id]`, size $N$ | per-FPG | after recency scoring | steps 3, 6 |
 | P2 | Non-frontier IDs | `set[vocab_id]` | per-FPG | after recency scoring | steps 3, 6 |
 | P3 | New-word pinyin | `dict[vocab_id → pinyin]`, size $M$ | per-FPG | at new-word selection | hints |
 | P4 | Prompt rows | `vocab_id → (chars, pinyin, sense)` for every ID in P1 ∪ P2 | per-FPG | returned by the recency-scoring query (`user_vocab` joined to `hsk_vocab`) | step 3 |
 
 **S1 — unit index.** Keyed by every distinct `simp_man_word` in `hsk_vocab`. Keys are whole segmented units, e.g. 长大 is its own key, not looked up character by character. Each value holds *every* HSK candidate for that string, with pinyin and sense embedded, so a single lookup supplies everything steps 4–5 need without a second query. `len(value) > 1` means the unit is ambiguous. S1 is built from the **DB**, not from `HSK_VOCAB` (the in-memory parse of `hsk30.txt`), because vocab IDs exist only in the DB and the dedupe happened only in the DB. S1 supersedes `data/polychars.txt`: a reading with no HSK entry has no vocab ID and could never be serialized anyway.
+
+*Lifecycle.* S1 is **not** built at module import. `moxie.db` is gitignored, so an import-time query would break test collection on any fresh clone or CI run. Instead:
+- `generation.py` owns a builder that reads `hsk_vocab` through a session it is *given*. That way integration tests can point it at the isolated test DB.
+- A cached wrapper supplies the production session, so the query runs once per server process.
+- The orchestrator passes S1 down. The segmenter and the resolution module take it as an argument and never import the builder, so their unit tests pass a hand-built toy S1.
+- Because vocab IDs are reassigned on re-seed and the cache lives in server memory, **re-seeding must be followed by a server restart.** A running server would otherwise keep serving stale IDs, and may still hold the deleted `.db` file open.
 
 **P1 / P2 — eligible ID sets.** The *eligible set* $E = P1 \cup P2$ is every encountered ID plus the $M$ new IDs. Invariants:
 - $P1 \cap P2 = \emptyset$. The two prompt lists partition $E$.

@@ -27,7 +27,10 @@
 *Milestone 1 — Claude FPG pipeline:*
 - [x] `sense` column on `hsk_vocab`; sense-only duplicates collapsed at seed (`dedupe_senses`, 4 entries)
 - static unit index S1 (PRD §VIII.B)
-    - unit string → ((vocab_id, pinyin, sense), ...), built once at import from `hsk_vocab` (DB, not `hsk30.txt`)
+    - unit string → ((vocab_id, pinyin, sense), ...), built from `hsk_vocab` (DB, not `hsk30.txt`)
+    - builder in `generation.py` takes a session (testable against the test DB); cached wrapper supplies the production session, once per server process
+    - passed down as an argument to segmenter + resolution module; never built at import (`moxie.db` is gitignored, so CI has no DB)
+    - document in README/CONTRIBUTING: re-seed → restart the server
     - replaces `data/polychars.txt`: remove the file and `POLY_CHARS`
 - selection module *(name TBD)* — recency scoring + per-FPG structures (PRD §VII, §VIII.B)
     - Time Pressure component $T$
