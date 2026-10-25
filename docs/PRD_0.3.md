@@ -50,6 +50,12 @@
     - the retry loop is stateless: an edited passage reruns steps 4–6 from scratch.
     - sense-aware validation deferred.
     - added the identity model, data-structure table (static unit index S1; per-FPG P1–P4) and step-by-step technical pipeline (VIII.A–C). Prompts carry pinyin *and* sense; resolution returns option numbers, never raw IDs; `polychars.txt` superseded by S1.
+- October 25th, 2026: settled FPG module boundaries and error handling (Sections VIII.C, XIV):
+    - `segmenter.py` becomes a pure BiMM module (passage, S1 and $E$ as arguments; no DB access) that also makes the FMM/BMM choice: fewer string-level errors, then fewer units, then fewer single-character units, then BMM. `gen_pinyin` retired.
+    - two distinct not-encountered errors: word level (step 4, no reading of the string is eligible) and reading/sense level (step 6, the resolved ID is ineligible).
+    - string-level failures short-circuit straight to a reprompt; ID-level failures (ineligible reading, frontier count) are collected and reported in one combined prompt. Validators return errors as data rather than raising them one at a time.
+    - ID resolution is blind: a separate fresh request with no eligibility information, options in ascending `vocab_id` order, no labels.
+    - `generation.py` is orchestration only and owns the per-request message list; `llm.py` is transport + templates only; selection and resolution/validation are their own modules (names TBD).
 
 ## I. Content & Objectives
 Broadly, the purpose of Moxie is two-fold:
@@ -246,40 +252,64 @@ Structures are either **static** (identical for every user, derived from the glo
 
 `Given ONLY the vocabulary listed here, generate a [insert length range] [Simplified/Traditional] Mandarin character text as a pinyin decoding exercise for an English-speaking Mandarin student. Each word is listed with its pinyin reading and, where given, its part of speech; use each word ONLY in that reading and sense. The second list contains "frontier" words that MUST be MOSTLY included in the passage (at LEAST [insert minimum value]), while the first list contains words the user already knows - these can be used WHENEVER appropriate. Do NOT under ANY CIRCUMSTANCES use any vocabulary, reading or sense that is not in one of these two lists, at ANY POINT in the passage. This passage should be formatted with NO SPACES.`
 
-**Step 4: segmentation + string-level validation.** The output is quickly scanned for length. Non-Han characters are stripped, and the self-written Bidirectional Maximum Matching (BiMM) segmenter splits the passage into units by maximum-matching against the *whole* HSK 3.0 word list. For each unit $u$:
+**Step 4: segmentation + string-level validation.** The output is quickly scanned for length. The segmenter is a **pure** module: it never touches the DB, and it receives everything it needs as arguments (the passage, S1, and the eligible set $E$). Non-Han characters are stripped. The self-written Bidirectional Maximum Matching (BiMM) segmenter then runs Forward (FMM) and Backward (BMM) maximum matching against the *whole* HSK 3.0 word list. For each unit $u$ of a segmentation:
 - (a) **Hallucinated:** $u \notin$ S1.
-- (b) **Not encountered:** $u \in$ S1, but no candidate ID of $u$ is in $E$.
+- (b) **Not encountered (word level):** $u \in$ S1, but no candidate ID of $u$ is in $E$. The user has never seen this string in *any* reading.
 
-These checks are **reject-only**. Passing (b) means only that *some* reading of $u$ is eligible, not that the one used is. No frontier check happens here: frontier membership is per ID, so it can't be counted until step 5.
+**FMM vs. BMM is decided here, inside the segmenter**, so exactly one segmentation leaves step 4. When FMM and BMM differ, they are compared in order:
+1. fewer string-level errors (a + b);
+2. fewer units;
+3. fewer single-character units;
+4. BMM.
+
+Criteria 2–4 are the standard BiMM heuristic. Criterion 1 is added so the segmentation with fewer errors wins. None of the criteria needs ID resolution or a model call.
+
+These checks are **reject-only**. Passing (b) means only that *some* reading of $u$ is eligible, not that the one used is. No frontier check happens here: frontier membership is per ID, so it can't be counted until step 5. **If any unit fails (a) or (b), the attempt stops here**: steps 5–6 are skipped, so no resolution call is spent on a passage that is already rejected, and the passage is reprompted immediately.
 
 **Step 5: ID resolution.** Each unit is mapped to exactly one vocab ID, using its S1 candidates $C(u)$:
 1. $|C(u)| = 1$: resolved directly.
 2. All of $C(u)$ share one pinyin (sense-only ambiguity) and exactly one candidate is in $E$: pick it **without** a model call. Safe because a wrong sense cannot change the answer-key pinyin.
 3. Otherwise (candidates differ in pinyin, or several same-pinyin candidates are eligible): queue $u$ for the resolution call. The options are **all of $C(u)$**, not just the eligible ones. Restricting options to eligible candidates would silently force an ineligible usage (很长 `chang2` when only 长 `zhang3` is eligible) into the eligible reading. The result would be a wrong answer key, a correct user answer graded severe, and a spurious demotion.
 
-All queued units go in **one** call. Each unit's candidates are numbered $1..k$ with pinyin and sense shown, and the model replies with **option numbers only**. The number is mapped back to a vocab ID locally. Raw IDs are never requested from the model: a mistyped ID is probably another word's valid ID and would pass silently, while an out-of-range number or non-number is caught immediately (*not yet implemented*):
+All queued units go in **one** call. Each unit's candidates are numbered $1..k$ with pinyin and sense shown, and the model replies with **option numbers only**. The number is mapped back to a vocab ID locally. Raw IDs are never requested from the model: a mistyped ID is probably another word's valid ID and would pass silently, while an out-of-range number or non-number is caught immediately.
+
+**Resolution is blind.** It asks what the passage *says*, not what the user *should* have seen, so it must not be biased toward eligible readings:
+- It is a **separate, fresh request**, not a turn in the generation conversation. The generation prompt, and with it the eligible lists, is never in its context.
+- It receives **no eligibility or frontier information**. Its only inputs are the final passage and the numbered candidates.
+- Options are listed in a **user-independent order** (ascending `vocab_id`). Eligible readings never come first, since models tend to favor earlier options.
+- Options carry **no labels** such as "known", "frontier" or "target". Each is shown as just pinyin + sense.
+
+Each retry produces a new passage, so each attempt gets its own fresh resolution call (*not yet implemented*):
 
 `The following words/chars have multiple possible readings in this passage. For each, reply ONLY with the number of the option that matches its usage in context. [word/char #1] (position [i]): (1) [pinyin] [sense] (2) [pinyin] [sense] ... [word/char #2] ...`
 
 **Step 6: ID-level validation + serialization.** Done in one pass over the resolved ID sequence, using set membership against P1 and $E$ (O(1) each):
-- (c) **Ineligible reading/sense:** resolved ID $\notin E$. Reported as a not-encountered unit, with the reading used. This is what catches the 很长 case.
+- (c) **Not encountered (reading/sense level):** resolved ID $\notin E$. The string is known, but this particular (pinyin, sense) entry has never been seen. This is a **separate error type** from (b), and it is reported with the reading used. This is what catches the 很长 case.
 - (d) **Frontier count:** the number of *distinct* resolved IDs in P1 must be at least the tier minimum. It cannot exceed the maximum, since $|P1| = N$. New words count like any other frontier ID and are not separately required. A new word the model leaves out was never shown to the user, so it stays Not Encountered.
 
-If both pass, the ordered ID sequence is serialized as the answer key (Section IX), and its pinyin is read off each ID's candidate entry.
+Both checks come out of the same pass at no extra cost, so failures are **collected, not short-circuited**. If (c) and (d) both fail, they are reported together. If both pass, the ordered ID sequence is serialized as the answer key (Section IX), and its pinyin is read off each ID's candidate entry.
 
 (*Known risk:* segmentation may not match what the model intended. For example, a single-character frontier word 学 written inside 学生 segments as 学生, so it does not count toward the frontier minimum. How often this happens is unknown until segmentation is tested against real generated passages.)
 
-**Retry loop.** Steps 4–6 form a stateless validator: it takes a passage and returns valid or a list of errors, and never needs to know about earlier attempts. A failing passage is sent back to the model with an *edit* prompt. Whatever comes back is a brand-new passage that reruns steps 4–6 from scratch, including a fresh resolution call. The only state carried between attempts is the retry count. P1–P4 and S1 do not change between attempts.
+**Retry loop.** Steps 4–6 form a stateless validator: it takes a passage and returns valid or a list of errors, and never needs to know about earlier attempts. Validation failures are returned as data, not raised one at a time, so the orchestrator can build a single reprompt from all collected errors. A failing passage is sent back to the model with an *edit* prompt. Whatever comes back is a brand-new passage that reruns steps 4–6 from scratch, including a fresh resolution call. P1–P4 and S1 do not change between attempts.
+
+**Conversation state.** The Messages API is stateless: each request carries the full conversation as a list of alternating `user` / `assistant` turns. The **orchestrator** (`generation.py`) owns this list as a local variable scoped to one FPG request:
+- it starts with the generation prompt;
+- each reply is appended as an `assistant` turn and each edit prompt as a `user` turn, and the whole list is resent;
+- this is what lets an edit prompt ("KEEP the existing ones") refer to the previous passage;
+- the list is discarded when the request returns, since nothing about the exchange needs to persist once a passage validates.
+
+Resolution calls (step 5) are never added to this list. Besides the message list, the only state carried between attempts is the retry count.
 
 If (1) the frontier minimum is not reached (check d), the following prompt is given:
 
 `The number of frontier words is not enough. Edit the passage to include [integer difference] more, while also KEEPING the existing ones. The same rules from above apply for generation.`
 
-If (2) any unit fails checks a–c, the following prompt is given:
+If (2) any unit fails checks a–c, the following prompt is given. For (a)/(b) this is sent immediately, since the attempt stopped at step 4. For (c) it is combined with (1) when both fail:
 
 `Vocab unit(s) [list of offending units, with the reading used where relevant] are not in the allowed vocabulary. Diagnose and edit the passage to fix these mistakes. The same rules apply for generation as before.`
 
-If both failure modes are violated, a combination of both is consolidated in one prompt. If this error loop continues two times with Sonnet failing to remedy the failing passage, FPG is stopped entirely and an error message is communicated back to the user. (*Open:* whether resolution calls count toward the two-retry budget.)
+Combining only happens at the ID level: (c) and (d) come out of the same pass, so reporting both at once costs nothing and can save a retry from the two-retry budget. String-level failures (a, b) are never combined with (d), because checking (d) would require a resolution call on a passage that is already rejected. If this error loop continues two times with Sonnet failing to remedy the failing passage, FPG is stopped entirely and an error message is communicated back to the user. (*Open:* whether resolution calls count toward the two-retry budget.)
 
 **New-word pinyin hints.** After step 6, the hint map is the subset of P3 whose IDs appear in the resolved sequence. Since an ID fixes its reading, the hint pinyin is exactly the reading the user will be graded against. A new word has never been seen by the user, so they just copy the hint while decoding. Hints are sent along with the rendered passage (Section XIII). New words are still graded like any other unit, but their CSM outcome is fixed at Learning +0 (Section XI).
 
@@ -387,12 +417,16 @@ The repo layout is structured as follows:
 1. **`backend/`:** contains (1) Claude-FPG pipeline and (2) the grading & CSM pipeline
     - `main.py` - top-most layer of control
     - `models.py` - bridges gap between Python classes and relational databases 
-    - `llm.py` - facilitates calling Claude
-    - `generation.py` - orchestrating layer for FPG
+    - `llm.py` - **transport + prompt templates only.** Builds each prompt (generation, edit/reprompt, resolution) from plain data passed in, sends a message list, and returns plain data: passage text, or the reply parsed into option numbers. It knows nothing about the pipeline's error types or validation rules. Checking parsed option numbers against the candidates belongs to the resolution module, since only it knows how many options there were.
+    - `generation.py` - **orchestrating layer for FPG only**, mirroring `grading.py`. Calls the modules below in order, owns the retry loop and the per-request message list (Section VIII.C), decides *what* to reprompt from collected errors, and assembles the response to the frontend. It is the only FPG layer, together with the selection module's query, that talks to the DB.
+    - selection module *(working name TBD)* - recency scoring ($T$, $I$, $H$ → $R$), new-word selection, and construction of the per-FPG structures P1–P4 (Section VIII.B)
+    - resolution / validation module *(working name TBD)* - step 5 ID resolution (direct, same-pinyin shortcut, queue for the blind model call), step 6 ID-level checks (c, d), and answer-key serialization
+    - `segmenter.py` - **pure BiMM module** (step 4): FMM, BMM, the string-level checks (a, b), and the FMM/BMM choice. Takes the passage, S1 and $E$ as arguments; no DB access. Pinyin generation (`gen_pinyin`) is retired, since pinyin now comes from resolved IDs.
     - `grading.py` - broad orchestrator for entire grading pipeline
     - `levenshtein.py` - conducts Levenshtein distance grading
     - `csm.py` - updates AVD using grading info
-    - `segmenter.py` - segments Claude passages
+
+   Rule of thumb: only orchestrators (and the selection query) touch the DB. Every module below them takes plain data in and returns plain data out, so each can be tested with hand-built toy inputs.
 2. **`frontend/`:** contains all UI
     - `index.html` - homepage and starting point for a new session
     - `decode.html` - session page
@@ -401,7 +435,7 @@ The repo layout is structured as follows:
     - CRD
     - PRD iterations
 4. **`data/:`** all HSK data and relevant scripts for management
-    - polyphone table - individual characters with mutliple, contextual pinyin representations
+    - ~~polyphone table~~ (`polychars.txt`) - superseded by the static unit index S1 (Section VIII.B); to be removed
     - Full 11K HSK 3.0 vocabulary list 
     - `seed.py` - initial (hardcoded, for now) seeding of the database with appropriate baseline calibrations
     - `db.py` - establishes connection to the database

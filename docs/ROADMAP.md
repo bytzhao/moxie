@@ -25,11 +25,17 @@
     - manual test: submit toy pinyin, inspect DB state before/after
 
 *Milestone 1 — Claude FPG pipeline:*
-- `backend/generation.py` — recency scoring
+- [x] `sense` column on `hsk_vocab`; sense-only duplicates collapsed at seed (`dedupe_senses`, 4 entries)
+- static unit index S1 (PRD §VIII.B)
+    - unit string → ((vocab_id, pinyin, sense), ...), built once at import from `hsk_vocab` (DB, not `hsk30.txt`)
+    - replaces `data/polychars.txt`: remove the file and `POLY_CHARS`
+- selection module *(name TBD)* — recency scoring + per-FPG structures (PRD §VII, §VIII.B)
     - Time Pressure component $T$
-    - Relative Interaction Pressure $I$ (encounter density derived from `Appearances` log, PRD Decision Log §3)
+    - Relative Interaction Pressure $I$ (encounter density derived from `Appearances` log, PRD Decision Log §3; $D_e = 0$ with zero FPGs)
     - Historical Memory $H$ (weighted memory-score decay, 0.5-seed edge case)
-    - combine into $R$, sort AVD, select frontier + new-word set per length-tier caps (PRD §VIII)
+    - combine into $R$, sort descending, random tie-break
+    - build P1 (frontier IDs) / P2 (non-frontier IDs) / P3 (new-word ID → pinyin) / P4 (prompt rows: ID → chars, pinyin, sense)
+    - tests (toy AVD rows in, sets out)
 - new-word selection: pool + ordering
     - pool: lowest HSK level that still has Not Encountered words (calibration tags the user's own level Learning, so this starts at level + 1)
     - ordering within the pool is undecided; random is the placeholder
@@ -37,20 +43,33 @@
         - jieba `dict.txt` (word / count / POS per line, simplified)
         - SUBTLEX-CH (subtitle-corpus word frequencies)
         - HSK entries missing from the list need a fallback (rank last, or random among themselves)
-- `backend/llm.py`
-    - thin Claude API call wrapper
-- `backend/generation.py` — orchestration
-    - prompt construction from encountered/frontier dicts (PRD §VIII template)
-    - validation loop: length check, frontier-count check, hallucination check, retry prompts, 2-strike abort
-    - polyphone resolution pass (bounded table + Claude disambiguation call)
-    - write to `Passages` table (answer key, state=SENT_TO_USER)
-- ~~`data/polychars.txt` provenance~~ — superseded: the static unit index S1 (PRD §VIII.B), built from `hsk_vocab`, replaces `polychars.txt`; remove the file and `POLY_CHARS` from `segmenter.py`
-- answer-key serialization: ID resolution (pinyin + sense) — design resolved in PRD §VIII.A–C
-    - [x] `sense` column on `hsk_vocab`; sense-only duplicates collapsed at seed (`dedupe_senses`, 4 entries)
-    - static unit index S1: unit string → ((vocab_id, pinyin, sense), ...), built once from the DB
-    - per-FPG sets P1 (frontier) / P2 (non-frontier) / P3 (new-word pinyin) / P4 (prompt rows)
-    - `segmenter.py`: move frontier count out of `validate_seg` to after ID resolution; string-level not-encountered check via S1 ∩ eligible set
-    - resolution call: all HSK candidates, numbered options, option-number reply; same-pinyin + single-eligible shortcut skips the call
+- `backend/segmenter.py` — rewrite as pure BiMM module (PRD §VIII.C step 4)
+    - inputs: passage, S1, eligible set $E$ as arguments; no DB access
+    - FMM + BMM against the whole HSK word list
+    - string-level checks: hallucinated (a), word-level not encountered (b)
+    - FMM/BMM choice in-module: fewer string-level errors → fewer units → fewer single-char units → BMM
+    - return one segmentation + collected errors as data (not raised one at a time)
+    - remove frontier count from `validate_seg`, retire `gen_pinyin`
+    - fix duplicate-guard slip in the frontier branch (moot once frontier moves out, but note for tests)
+    - update `tests/test_segmenter.py`
+- resolution / validation module *(name TBD)* — PRD §VIII.C steps 5–6
+    - per-unit resolution: single candidate → direct; same-pinyin + exactly one eligible → shortcut; else queue
+    - blind resolution request: all HSK candidates, ascending `vocab_id` order, no labels, no eligibility info; separate fresh request per attempt
+    - validate parsed option numbers against each unit's candidate count; map numbers → vocab IDs
+    - ID-level checks in one pass: reading/sense-level not encountered (c, its own error type), distinct-frontier-ID count (d); collect both
+    - serialize ordered ID sequence as answer key; derive new-word hints from P3
+    - tests
+- `backend/llm.py` — transport + templates only
+    - prompt builders: generation (lists with pinyin + sense), edit/reprompt (from plain lists of offending units / frontier shortfall), resolution (numbered options)
+    - send a message list, return text; parse resolution reply into option numbers
+    - no knowledge of pipeline error types
+- `backend/generation.py` — orchestration only (mirrors `grading.py`)
+    - call selection → `llm.py` → segmenter → resolution/validation in order
+    - own the per-request message list (append assistant replies + edit prompts, resend)
+    - retry loop: string-level failures → immediate reprompt; ID-level failures → one combined reprompt; 2-strike abort
+    - decide: do resolution calls count toward the retry budget? (PRD §VIII.C open item)
+    - write to `Passages` table (answer key, state=SENT_TO_USER); assemble response incl. `new_word_hints`
+    - fix docstring: sort by *highest* recency score
 - single source of truth for HSK word strings
     - BiMM matches against `HSK_VOCAB` (from `hsk30.txt`) while S1 is built from the DB; word sets are identical today (dedupe removed no word strings)
     - point the segmenter at S1's keys so the two can't drift
