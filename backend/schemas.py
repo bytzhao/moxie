@@ -49,3 +49,11 @@ class StatusTier(IntEnum):
     FAMILIAR = 2
     SOLID = 3
     MASTERED = 4
+
+
+@dataclass(frozen=True)
+class VocabTriple():
+    """Frozen triple for static HSK dict mapping chars to all existing readings."""
+    vocab_id: int
+    pinyin: str
+    sense: str
