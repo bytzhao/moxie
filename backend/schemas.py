@@ -52,7 +52,7 @@ class StatusTier(IntEnum):
 
 
 @dataclass(frozen=True)
-class VocabTriple():
+class VocabTriple:
     """Frozen triple for static HSK dict mapping chars to all existing readings."""
     vocab_id: int
     pinyin: str
