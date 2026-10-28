@@ -51,11 +51,14 @@
     - sense-aware validation deferred.
     - added the identity model, data-structure table (static unit index S1; per-FPG P1–P4) and step-by-step technical pipeline (VIII.A–C). Prompts carry pinyin *and* sense; resolution returns option numbers, never raw IDs; `polychars.txt` superseded by S1.
 - October 25th, 2026: settled FPG module boundaries and error handling (Sections VIII.C, XIV):
-    - `segmenter.py` becomes a pure BiMM module (passage, S1 and $E$ as arguments; no DB access) that also makes the FMM/BMM choice: fewer string-level errors, then fewer units, then fewer single-character units, then BMM. `gen_pinyin` retired.
+    - `segmenter.py` becomes a pure BiMM module (passage, S1 and $E$ as arguments; no DB access) that also makes the FMM/BMM choice: validity (error type, then count, when both fail), then fewer units, then fewer single-character units, then BMM. `gen_pinyin` retired.
     - two distinct not-encountered errors: word level (step 4, no reading of the string is eligible) and reading/sense level (step 6, the resolved ID is ineligible).
     - string-level failures short-circuit straight to a reprompt; ID-level failures (ineligible reading, frontier count) are collected and reported in one combined prompt. Validators return errors as data rather than raising them one at a time.
     - ID resolution is blind: a separate fresh request with no eligibility information, options in ascending `vocab_id` order, no labels.
     - `generation.py` is orchestration only and owns the per-request message list; `llm.py` is transport + templates only; selection and resolution/validation are their own modules (names TBD).
+- October 27th, 2026: revised segmenter input handling and the FMM/BMM error tie-break (Section VIII.C step 4):
+    - punctuation and whitespace are no longer stripped; each is its own unit and is skipped by the string-level checks. Latin letters and digits are flagged as hallucinated.
+    - when both segmentations fail, the reported error is chosen by type first (not-encountered outranks hallucinated), then by count, since hallucination is segmentation-dependent.
 
 ## I. Content & Objectives
 Broadly, the purpose of Moxie is two-fold:
@@ -258,17 +261,17 @@ Structures are either **static** (identical for every user, derived from the glo
 
 `Given ONLY the vocabulary listed here, generate a [insert length range] [Simplified/Traditional] Mandarin character text as a pinyin decoding exercise for an English-speaking Mandarin student. Each word is listed with its pinyin reading and, where given, its part of speech; use each word ONLY in that reading and sense. The second list contains "frontier" words that MUST be MOSTLY included in the passage (at LEAST [insert minimum value]), while the first list contains words the user already knows - these can be used WHENEVER appropriate. Do NOT under ANY CIRCUMSTANCES use any vocabulary, reading or sense that is not in one of these two lists, at ANY POINT in the passage. This passage should be formatted with NO SPACES.`
 
-**Step 4: segmentation + string-level validation.** The output is quickly scanned for length. The segmenter is a **pure** module: it never touches the DB, and it receives everything it needs as arguments (the passage, S1, and the eligible set $E$). Non-Han characters are stripped. The self-written Bidirectional Maximum Matching (BiMM) segmenter then runs Forward (FMM) and Backward (BMM) maximum matching against the *whole* HSK 3.0 word list. For each unit $u$ of a segmentation:
+**Step 4: segmentation + string-level validation.** The output is quickly scanned for length. The segmenter is a **pure** module: it never touches the DB, and it receives everything it needs as arguments (the passage, S1, and the eligible set $E$). Punctuation and whitespace are **not** stripped: each such character becomes its own unit in the segmentation and is skipped by the string-level checks below. Latin letters and digits are never valid in a passage, so they are flagged as hallucinated like any non-HSK character. The self-written Bidirectional Maximum Matching (BiMM) segmenter then runs Forward (FMM) and Backward (BMM) maximum matching against the *whole* HSK 3.0 word list. For each unit $u$ of a segmentation:
 - (a) **Hallucinated:** $u \notin$ S1.
 - (b) **Not encountered (word level):** $u \in$ S1, but no candidate ID of $u$ is in $E$. The user has never seen this string in *any* reading.
 
 **FMM vs. BMM is decided here, inside the segmenter**, so exactly one segmentation leaves step 4. When FMM and BMM differ, they are compared in order:
-1. fewer string-level errors (a + b);
+1. validity: if exactly one segmentation passes (a) and (b), it wins. If both fail, the passage is rejected and the error reported is chosen by **type first, then count**: a not-encountered (b) segmentation outranks a hallucinated (a) one; if both fail with the same type, the one with fewer offending units is reported (ties → BMM);
 2. fewer units;
 3. fewer single-character units;
 4. BMM.
 
-Criteria 2–4 are the standard BiMM heuristic. Criterion 1 is added so the segmentation with fewer errors wins. None of the criteria needs ID resolution or a model call.
+Criteria 2–4 are the standard BiMM heuristic and apply only when both segmentations pass. Criterion 1 ranks by error type before count because hallucination is segmentation-dependent: FMM and BMM match against the same word list, so a character is flagged as hallucinated only when *that* segmentation failed to cover it with an HSK unit. If the other segmentation covers every character (and fails only on (b)), the passage contains no truly hallucinated character, so the not-encountered report is the more accurate one. None of the criteria needs ID resolution or a model call.
 
 These checks are **reject-only**. Passing (b) means only that *some* reading of $u$ is eligible, not that the one used is. No frontier check happens here: frontier membership is per ID, so it can't be counted until step 5. **If any unit fails (a) or (b), the attempt stops here**: steps 5–6 are skipped, so no resolution call is spent on a passage that is already rejected, and the passage is reprompted immediately.
 
