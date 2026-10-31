@@ -54,6 +54,26 @@ class StatusTier(IntEnum):
 @dataclass(frozen=True)
 class VocabTriple:
     """Frozen triple for static HSK dict mapping chars to all existing readings."""
+
     vocab_id: int
+    pinyin: str
+    sense: str
+
+
+@dataclass
+class RecencyScore:
+    """Wraps per-unit params used to calculate final recency score."""
+
+    time_pressure: float
+    rel_interact_pressure: float
+    hist_memory: float
+    total_score: float
+
+
+@dataclass
+class ClaudeVocabTriple:
+    """Wraps chars, py, and sense of an ID for Claude to choose on frontier + other encountered words."""
+
+    chars: str
     pinyin: str
     sense: str
