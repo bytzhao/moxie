@@ -31,9 +31,7 @@ def load_hsk_triples_dict(s_maker: sessionmaker):
         # add a row for each hsk unit
         for unit in hsk_rows:
             new_triple = VocabTriple(
-                vocab_id=unit.vocab_id,
-                pinyin=unit.pinyin,
-                sense=unit.sense
+                vocab_id=unit.vocab_id, pinyin=unit.pinyin, sense=unit.sense
             )
             # add to the KV-pair w/ key = the chars
             if unit.simp_man_word in hsk_triples_dict:
