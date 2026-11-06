@@ -37,6 +37,13 @@ TIME_PRESSURE_LAMBDAS = {
     StatusTier.MASTERED: 0.125,
 }
 
+class IdNotFoundError(Exception):
+    """Exception raised when any function encounters caller-given vocab ID that DNE in the DB."""
+
+    def __init__(self, unknown_id, message="A passed ID was not found"):
+        super().__init__(message)
+        self.unknown_id = unknown_id
+
 
 # static char -> ID, py, sense triple
 @cache
@@ -85,12 +92,11 @@ def fpg_orchestrator(passage_len: tuple[int, int], user_id: int):
         get_elligible_ids(user_id, current_time, frontier_max, SessionLocal)
     )
 
-    # prompt Claude for passage
+    # TODO: prompt Claude for passage (hardcoded for now)
     str_passage = "床前明月光，疑是地上霜。举头望明月，低头思故乡。"
 
     # 2) Segmentation
     # return list of strs, each a unit OR punctuation OR space
-
     try:
         seg_passage = bimm(
             str_passage,
@@ -311,8 +317,8 @@ def get_new_words(user_id: int, frontier_max: int, s_maker: sessionmaker) -> set
 
 # seed new words into frontier triple dict
 def seed_claude_triples(id_set: set, s_maker: sessionmaker):
-    """Generically takes set of vocab IDs & generates a dict mapping them to Claude triples. by reading HskVocabulary."""
-    frontier_dict: dict[int, ClaudeVocabTriple] = {}
+    """Generically takes set of vocab IDs & generates a dict mapping them to Claude triples by reading HskVocabulary."""
+    claude_triples_dict: dict[int, ClaudeVocabTriple] = {}
 
     with s_maker() as session:
         # parse IDs
@@ -329,11 +335,15 @@ def seed_claude_triples(id_set: set, s_maker: sessionmaker):
             )
             row = session.execute(claude_triple_query).first()
 
-            frontier_dict[id] = ClaudeVocabTriple(
+            # if ID doesn't exist, raise
+            if row is None:
+                raise IdNotFoundError(id)
+
+            claude_triples_dict[id] = ClaudeVocabTriple(
                 chars=row.simp_man_word, pinyin=row.pinyin, sense=row.sense
             )
 
-    return frontier_dict
+    return claude_triples_dict
 
 
 # ----------------------

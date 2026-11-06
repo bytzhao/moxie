@@ -77,9 +77,9 @@ def dedupe_senses(entries):
     return kept
 
 
-def seed_hsk_vocab(session):
+def seed_hsk_vocab(session, vocab_dict=HSK_VOCAB):
     """One row per (word, reading, sense) triple already parsed into HSK_VOCAB."""
-    for word, entries in HSK_VOCAB.items():
+    for word, entries in vocab_dict.items():
         # go through individual HskEntrys, collapsing sense-only duplicates first
         for entry in dedupe_senses(entries):
             session.add(
