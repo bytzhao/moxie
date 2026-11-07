@@ -118,7 +118,6 @@ This is a learning project as much as a product. I use Claude Code under a writt
 ## Acknowledgments
 
 - HSK 3.0 vocabulary data adapted from [ivankra/hsk30](https://github.com/ivankra/hsk30) (MIT).
-- Polyphonic character table (`data/polychars.txt`) generated with Claude; not yet independently verified. Replacing it with a table derived from the HSK data is on the [roadmap](docs/ROADMAP.md).
 
 ## License
 
