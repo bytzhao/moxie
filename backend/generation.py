@@ -217,7 +217,7 @@ def get_elligible_ids(
             appearances_query = (
                 select(Appearances.memory_score)
                 .where(Appearances.user_id == user_id, Appearances.vocab_id == id)
-                .order_by(Appearances.timestamp.asc())
+                .order_by(Appearances.timestamp.desc())
                 .limit(10)
             )
             memory_scores_list = list(session.scalars(appearances_query).all())

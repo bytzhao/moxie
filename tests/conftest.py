@@ -1,13 +1,14 @@
 """
-conftest.py - contains fixtures defined for scratch DB testing. 
+conftest.py - contains fixtures defined for scratch DB testing.
 """
+
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from backend.models import Base
 from data.seed import seed_hsk_vocab, seed_user
-from tests.test_id_selection import TOY_HSK_VOCAB
+
 
 @pytest.fixture
 def scratch_s_maker(toy_vocab_dict):
@@ -23,7 +24,7 @@ def scratch_s_maker(toy_vocab_dict):
         seed_hsk_vocab(session, toy_vocab_dict)
         seed_user(session, "Stephen Dedalus", "sdedalus@gmail.com")
 
-    # yield engine
+    # TODO: yield engine (or return)
     yield s_maker
 
-    # .dispose() teardown
+    # TODO: .dispose() teardown
