@@ -21,6 +21,7 @@ from backend.segmenter import HallucinatedWordsError, NotEncounteredWordsError, 
 from data.db import SessionLocal
 
 HIST_MEM_WEIGHT = 0.8
+DENSITY_PASSAGE_WINDOW = 50
 
 LEARNING_WORDS_MAX = 25
 FRONTIER_ALLOWANCE = {
@@ -36,6 +37,7 @@ TIME_PRESSURE_LAMBDAS = {
     StatusTier.SOLID: 0.25,
     StatusTier.MASTERED: 0.125,
 }
+
 
 class IdNotFoundError(Exception):
     """Exception raised when any function encounters caller-given vocab ID that DNE in the DB."""
@@ -126,17 +128,116 @@ def fpg_orchestrator(passage_len: tuple[int, int], user_id: int):
 def get_elligible_ids(
     user_id: int, current_time: datetime, frontier_max: int, s_maker: sessionmaker
 ):
+    frontier_triple_dict = {}
+
     # get frontier allowance, calc # of new words to add, and gen new words set
     new_words_set = get_new_words(user_id, frontier_max, s_maker)
     num_new_words = len(new_words_set)
-
-    frontier_triple_dict = {}
-    other_encountered_triple_dict = {}
 
     # fill new words to frontier_triple dict, if any
     if new_words_set:
         frontier_triple_dict = seed_claude_triples(new_words_set, s_maker)
 
+    # 1) Recency Scores Calculation
+    recency_scores: dict[int, RecencyScore] = compute_recency_scores(
+        user_id, current_time, s_maker
+    )
+
+    # 2) Split Frontier/Other-Encountered IDs
+    frontier_ids, other_ids = select_frontier(
+        recency_scores, frontier_max - num_new_words
+    )
+
+    # 3) Compile Claude-triple dicts
+    frontier_dict_not_new = seed_claude_triples(frontier_ids, s_maker)
+    other_triple_dict = seed_claude_triples(other_ids, s_maker)
+    frontier_triple_dict = frontier_triple_dict | frontier_dict_not_new
+
+    return new_words_set, frontier_triple_dict, other_triple_dict
+
+
+# ----------------------
+# New Word Selection
+# ----------------------
+def get_new_words(user_id: int, frontier_max: int, s_maker: sessionmaker) -> set:
+    """Fetch a set of new words for the user given their # of learning words."""
+    new_words_set = set()
+
+    # count how many learning words for this user
+    num_learning_words = 0
+    with s_maker() as session:
+        num_learning_words_query = (
+            select(func.count())
+            .select_from(UserVocab)
+            .where(
+                UserVocab.user_id == user_id,
+                UserVocab.status_tier == StatusTier.LEARNING,
+            )
+        )
+        num_learning_words = session.scalar(num_learning_words_query)
+
+    new_word_allowance = LEARNING_WORDS_MAX - num_learning_words
+
+    if new_word_allowance < 1:
+        return new_words_set
+
+    # query Not-Encountered words, pick randomly from lowest hsk_level
+    all_new_words_dict: dict[int, str] = {}
+    with s_maker() as session:
+        new_words_query = (
+            select(UserVocab.vocab_id, HskVocabulary.hsk_level)
+            .join(HskVocabulary, HskVocabulary.vocab_id == UserVocab.vocab_id)
+            .where(
+                UserVocab.user_id == user_id,
+                UserVocab.status_tier == StatusTier.NOT_ENCOUNTERED,
+            )
+            .order_by(HskVocabulary.hsk_level.asc())
+        )
+        all_new_words = session.execute(new_words_query).all()
+        all_new_words_dict = {row.vocab_id: row.hsk_level for row in all_new_words}
+
+    # randomly pick new words (capped at frontier_max)
+    new_words_set = rand_pick_new_words(
+        min(frontier_max, new_word_allowance), all_new_words_dict
+    )
+    return new_words_set
+
+
+def rand_pick_new_words(num_new_words: int, all_new_words_dict: dict[int, str]):
+    """Given dict of IDs->hsk level, randomly picks a set from lowest level."""
+    new_words_set = set()
+    cpy_new_words_dict = all_new_words_dict.copy()
+
+    # number of new words to add capped at # of new words left (for advanced users)
+    for _i in range(min(num_new_words, len(cpy_new_words_dict))):
+        # get lowest current level (convert from strs)
+        lowest_level = min(
+            [int(str_level[0]) for str_level in cpy_new_words_dict.values()]
+        )
+
+        # pick random ID from new words by lowest HSK level
+        lowest_level_words = [
+            vocab_id
+            for vocab_id, level in cpy_new_words_dict.items()
+            if int(level[0]) == lowest_level
+        ]
+        chosen_id = choice(lowest_level_words)
+
+        # add it to the set
+        new_words_set.add(chosen_id)
+
+        # delete chosen ID from the dict
+        del cpy_new_words_dict[chosen_id]
+    return new_words_set
+
+
+# ----------------------
+# Recency Score Calculation
+# ----------------------
+def compute_recency_scores(
+    user_id: int, current_time: datetime, s_maker: sessionmaker
+) -> dict[int, RecencyScore]:
+    """Accesses DB to compile dict[int, RecencyScore] for downstream frontier selection."""
     recency_scores: dict[int, RecencyScore] = {}
 
     # 1) Time Pressure (parse UserVocab for last encountered time)
@@ -174,7 +275,7 @@ def get_elligible_ids(
             func.count(func.distinct(Appearances.passage_id))
         ).where(Appearances.user_id == user_id)
         total_passages = session.scalar(passage_num_query)
-        num_passages = min(50, total_passages)
+        num_passages = min(DENSITY_PASSAGE_WINDOW, total_passages)
 
         # get passages IDs for those num_passages most recent
         latest_passage_ids = (
@@ -228,7 +329,7 @@ def get_elligible_ids(
             # add score to this vocab unit
             recency_scores[id].hist_memory = hist_mem_score
 
-    # 4) calculate full scores
+    # 4) calculate & input full scores
     for id, score_triple in recency_scores.items():
         recency_scores[id].total_score = float(
             sum(
@@ -240,110 +341,7 @@ def get_elligible_ids(
             )
             / 3
         )
-    # recency_scores now is completely filled w/ score info of all encountered words
-    remaining_frontier_allowance = frontier_max - num_new_words
-
-    # 5) sort by recency score (descending - higher score = more important)
-    sorted_recency_dict = dict(
-        sorted(
-            recency_scores.items(), key=lambda item: item[1].total_score, reverse=True
-        )
-    )
-
-    # 6) add to frontier dict (filling rest of spots not taken by new words)
-    if remaining_frontier_allowance > 0:
-        # get top IDs from dict
-        frontier_ids = list(sorted_recency_dict.keys())[:remaining_frontier_allowance]
-        frontier_dict_not_new = seed_claude_triples(set(frontier_ids), s_maker)
-
-        # combine frontier w/ new words introduced
-        frontier_triple_dict = frontier_triple_dict | frontier_dict_not_new
-
-        # pop frontier from recency dict (prevent double-appear in other encountered dict)
-        for id in frontier_ids:
-            sorted_recency_dict.pop(id, None)
-
-    # 7) create other encountered dict
-    other_encountered_triple_dict = seed_claude_triples(
-        sorted_recency_dict.keys(), s_maker
-    )
-
-    return new_words_set, frontier_triple_dict, other_encountered_triple_dict
-
-
-def get_new_words(user_id: int, frontier_max: int, s_maker: sessionmaker) -> set:
-    """Fetch a set of new words for the user given their # of learning words."""
-    new_words_set = set()
-
-    # count how many learning words for this user
-    num_learning_words = 0
-    with s_maker() as session:
-        num_learning_words_query = (
-            select(func.count())
-            .select_from(UserVocab)
-            .where(
-                UserVocab.user_id == user_id,
-                UserVocab.status_tier == StatusTier.LEARNING,
-            )
-        )
-        num_learning_words = session.scalar(num_learning_words_query)
-
-    new_word_allowance = LEARNING_WORDS_MAX - num_learning_words
-
-    if new_word_allowance < 1:
-        return new_words_set
-
-    # query Not-Encountered words, pick randomly from lowest hsk_level
-    all_new_words_dict: dict[int, str] = {}
-    with s_maker() as session:
-        new_words_query = (
-            select(UserVocab.vocab_id, HskVocabulary.hsk_level)
-            .join(HskVocabulary, HskVocabulary.vocab_id == UserVocab.vocab_id)
-            .where(
-                UserVocab.user_id == user_id,
-                UserVocab.status_tier == StatusTier.NOT_ENCOUNTERED,
-            )
-            .order_by(HskVocabulary.hsk_level.asc())
-        )
-        all_new_words = session.execute(new_words_query).all()
-        all_new_words_dict = {row.vocab_id: row.hsk_level for row in all_new_words}
-
-    # randomly pick new words (capped at frontier_max)
-    new_words_set = rand_pick_new_words(
-        min(frontier_max, new_word_allowance), all_new_words_dict
-    )
-    return new_words_set
-
-
-# seed new words into frontier triple dict
-def seed_claude_triples(id_set: set, s_maker: sessionmaker):
-    """Generically takes set of vocab IDs & generates a dict mapping them to Claude triples by reading HskVocabulary."""
-    claude_triples_dict: dict[int, ClaudeVocabTriple] = {}
-
-    with s_maker() as session:
-        # parse IDs
-        for id in id_set:
-            # map ID to chars, py, sense triples
-            claude_triple_query = (
-                select(
-                    HskVocabulary.simp_man_word,
-                    HskVocabulary.pinyin,
-                    HskVocabulary.sense,
-                )
-                .select_from(HskVocabulary)
-                .where(HskVocabulary.vocab_id == id)
-            )
-            row = session.execute(claude_triple_query).first()
-
-            # if ID doesn't exist, raise
-            if row is None:
-                raise IdNotFoundError(id)
-
-            claude_triples_dict[id] = ClaudeVocabTriple(
-                chars=row.simp_man_word, pinyin=row.pinyin, sense=row.sense
-            )
-
-    return claude_triples_dict
+    return recency_scores
 
 
 # ----------------------
@@ -388,31 +386,62 @@ def hist_memory(mem_score_list: list[float]):
 
 
 # ----------------------
-# New Word Helper
+# Frontier Selection
 # ----------------------
-def rand_pick_new_words(num_new_words: int, all_new_words_dict: dict[int, str]):
-    """Given dict of IDs->hsk level, randomly picks a set from lowest level."""
-    new_words_set = set()
-    cpy_new_words_dict = all_new_words_dict.copy()
+def select_frontier(
+    recency_scores: dict[int, RecencyScore], remaining_frontier_allowance: int
+) -> tuple[set, set]:
+    """Splits recency score dict into partition of frontier & other encountered IDs."""
+    # sort vocab units by recency, descending
+    sorted_recency_dict = dict(
+        sorted(
+            recency_scores.items(), key=lambda item: item[1].total_score, reverse=True
+        )
+    )
 
-    # number of new words to add capped at # of new words left (for advanced users)
-    for _i in range(min(num_new_words, len(cpy_new_words_dict))):
-        # get lowest current level (convert from strs)
-        lowest_level = min(
-            [int(str_level[0]) for str_level in cpy_new_words_dict.values()]
+    # fetch frontier IDs from top of sorted recency dict
+    frontier_ids = set()
+    if remaining_frontier_allowance > 0:
+        frontier_ids = set(
+            list(sorted_recency_dict.keys())[:remaining_frontier_allowance]
         )
 
-        # pick random ID from new words by lowest HSK level
-        lowest_level_words = [
-            vocab_id
-            for vocab_id, level in cpy_new_words_dict.items()
-            if int(level[0]) == lowest_level
-        ]
-        chosen_id = choice(lowest_level_words)
+    # pop frontier from recency dict to compile other IDs
+    for id in frontier_ids:
+        sorted_recency_dict.pop(id, None)
+    other_ids = set(sorted_recency_dict.keys())
 
-        # add it to the set
-        new_words_set.add(chosen_id)
+    return frontier_ids, other_ids
 
-        # delete chosen ID from the dict
-        del cpy_new_words_dict[chosen_id]
-    return new_words_set
+
+# ----------------------
+# Claude-Format Dict Gen Helper
+# ----------------------
+def seed_claude_triples(id_set: set, s_maker: sessionmaker):
+    """Generically takes set of vocab IDs & generates a dict mapping them to Claude triples by reading HskVocabulary."""
+    claude_triples_dict: dict[int, ClaudeVocabTriple] = {}
+
+    with s_maker() as session:
+        # parse IDs
+        for id in id_set:
+            # map ID to chars, py, sense triples
+            claude_triple_query = (
+                select(
+                    HskVocabulary.simp_man_word,
+                    HskVocabulary.pinyin,
+                    HskVocabulary.sense,
+                )
+                .select_from(HskVocabulary)
+                .where(HskVocabulary.vocab_id == id)
+            )
+            row = session.execute(claude_triple_query).first()
+
+            # if ID doesn't exist, raise
+            if row is None:
+                raise IdNotFoundError(id)
+
+            claude_triples_dict[id] = ClaudeVocabTriple(
+                chars=row.simp_man_word, pinyin=row.pinyin, sense=row.sense
+            )
+
+    return claude_triples_dict
