@@ -2,8 +2,10 @@
 To Test (Layer 2 - DB shell of the ID selection / recency score module):
 - seed_claude_triples(): ID -> ClaudeVocabTriple mapping, empty input, shared chars/pinyin, unknown IDs
 - get_new_words(): learning-count cap, allowance vs. frontier_max caps, tier filtering (decoys)
-- get_elligible_ids(): ranking, no new words left, new words fill frontier, memory scores (last 10, correct order), 
+- get_elligible_ids(): ranking, no new words left, new words fill frontier, memory scores (last 10, correct order),
 brand-new user (partition is implicitly checked w/ ID set match)
+- compute_recency_scores(): one hand-traced scenario - every component + total per word,
+  zero-appearance branch, NOT_ENCOUNTERED exclusion
 
 NOTE: every test runs against a fresh in-memory DB from conftest.py's scratch_s_maker, seeded with
 TOY_HSK_VOCAB (via data/seed.py's seed_hsk_vocab) + one user. Per-scenario UserVocab / Passages /
@@ -12,10 +14,12 @@ NOTE: row tuples below omit user_id (single-user PoC) - the seeding helper fills
 
 TODO (known-untested, deliberately):
 - user isolation (a second user's rows leaking into counts / pools / appearances)
-- the 50-passage cap in get_elligible_ids' rel. interaction query
+- the 50-passage cap in compute_recency_scores' rel. interaction query
 """
 
 from datetime import datetime, timedelta
+from math import exp
+from statistics import mean
 
 import pytest
 from sqlalchemy import select
@@ -23,12 +27,13 @@ from sqlalchemy.orm import sessionmaker
 
 from backend.generation import (
     IdNotFoundError,
+    compute_recency_scores,
     get_elligible_ids,
     get_new_words,
     seed_claude_triples,
 )
 from backend.models import Appearances, HskVocabulary, Passages, PassageState, UserVocab
-from backend.schemas import ClaudeVocabTriple, StatusTier
+from backend.schemas import ClaudeVocabTriple, RecencyScore, StatusTier
 from data.hsk_vocab import HskEntry
 
 # shared anchor for every datetime below (also passed as current_time)
@@ -499,3 +504,93 @@ def test_get_elligible_ids(
     assert set(expected_new_ids) == new_words_set
     assert set(expected_frontier_ids) == frontier_dict.keys()
     assert set(expected_other_ids) == other_dict.keys()
+
+
+# ---------------
+# Recency Scores (compute_recency_scores)
+# ---------------
+# ONE scenario, hand-traced. Each word is built to exercise something different:
+# - 我 (1):  LEARNING, last seen 1 day ago, in 2 of 4 passages, memory (newest first) [1.0, 0.5]
+# - 是 (2):  MASTERED, last seen 2 days ago, in 3 of 4 passages, memory (newest first) [0.6, 0.4, 0.2]
+# - 事 (3):  SOLID, last seen 10 days ago, ZERO appearance rows (contrived: isolates the
+#           empty-memory branch + a word absent from every counted passage)
+# - 猫 (8):  NOT_ENCOUNTERED -> must not be a key at all
+# 4 passages total, one per day; every appearance's timestamp = its passage's time.
+CRS_PASSAGE_TIMES = {
+    1: BASE_TIME - timedelta(days=4),
+    2: BASE_TIME - timedelta(days=3),
+    3: BASE_TIME - timedelta(days=2),
+    4: BASE_TIME - timedelta(days=1),
+}
+
+user_vocab_rows_crs = [
+    (1, StatusTier.LEARNING, 0, CRS_PASSAGE_TIMES[4]),
+    (2, StatusTier.MASTERED, 0, CRS_PASSAGE_TIMES[3]),
+    (3, StatusTier.SOLID, 0, BASE_TIME - timedelta(days=10)),
+    (8, StatusTier.NOT_ENCOUNTERED, 0, BASE_TIME),
+]
+passage_rows_crs = [(pid, PassageState.GRADED, "") for pid in CRS_PASSAGE_TIMES]
+appearance_rows_crs = [
+    # 我: passages 2, 4
+    (1, 2, 0.5, CRS_PASSAGE_TIMES[2]),
+    (1, 4, 1.0, CRS_PASSAGE_TIMES[4]),
+    # 是: passages 1, 2, 3
+    (2, 1, 0.2, CRS_PASSAGE_TIMES[1]),
+    (2, 2, 0.4, CRS_PASSAGE_TIMES[2]),
+    (2, 3, 0.6, CRS_PASSAGE_TIMES[3]),
+]
+
+# expected: vocab_id -> RecencyScore(time_pressure, rel_interact_pressure, hist_memory, total_score)
+# (the key set itself is part of the oracle)
+expected_crs = {
+    1: RecencyScore(
+        time_pressure=1 - exp(-1 * 1),
+        rel_interact_pressure=1 - 0.5,
+        hist_memory=1 - (1 * 1.0 + 0.8 * 0.5) / (1 + 0.8),
+        total_score=mean(
+            [1 - exp(-1 * 1), 1 - 0.5, 1 - (1 * 1.0 + 0.8 * 0.5) / (1 + 0.8)]
+        ),
+    ),
+    2: RecencyScore(
+        time_pressure=1 - exp(-0.125 * 2),
+        rel_interact_pressure=1 - 0.75,
+        hist_memory=1 - (1 * 0.6 + 0.8 * 0.4 + 0.64 * 0.2) / (1 + 0.8 + 0.64),
+        total_score=mean(
+            [
+                1 - exp(-0.125 * 2),
+                1 - 0.75,
+                1 - (1 * 0.6 + 0.8 * 0.4 + 0.64 * 0.2) / (1 + 0.8 + 0.64),
+            ]
+        ),
+    ),
+    3: RecencyScore(
+        time_pressure=1 - exp(-0.25 * 10),
+        rel_interact_pressure=1,
+        hist_memory=0.5,  # there aren't any actual appearances -> default is 0.5
+        total_score=mean([1 - exp(-0.25 * 10), 1, 0.5]),
+    ),
+}
+
+
+# C) Function Call - yours
+def test_compute_recency_scores(scratch_s_maker):
+    # seed everything
+    seed_rows_helper(
+        scratch_s_maker, user_vocab_rows_crs, passage_rows_crs, appearance_rows_crs
+    )
+
+    recency_scores = compute_recency_scores(1, BASE_TIME, scratch_s_maker)
+
+    # check IDs included
+    assert expected_crs.keys() == recency_scores.keys()
+
+    # check values for all IDs
+    for id, scores in expected_crs.items():
+        # check all 4 individually
+        assert pytest.approx(scores.time_pressure) == recency_scores[id].time_pressure
+        assert (
+            pytest.approx(scores.rel_interact_pressure)
+            == recency_scores[id].rel_interact_pressure
+        )
+        assert pytest.approx(scores.hist_memory) == recency_scores[id].hist_memory
+        assert pytest.approx(scores.total_score) == recency_scores[id].total_score

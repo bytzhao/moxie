@@ -5,6 +5,8 @@ To Test (Layer 1 - pure core of the recency score module, no DB):
 - hist_memory(): empty list, recency weighting, all-equal, single element
 - rand_pick_new_words(): size cap, level exhaustion, "7-9" ordering, never skipping ahead,
   input dict left unchanged
+- select_frontier(): sorting, ties straddling the cutoff, allowance == # of scores,
+  zero / negative allowance
 
 NOTE: mem_score_list index 0 = MOST RECENT (the shell's query orders by timestamp desc).
 """
@@ -17,9 +19,10 @@ from backend.generation import (
     hist_memory,
     rand_pick_new_words,
     rel_interaction,
+    select_frontier,
     time_pressure,
 )
-from backend.schemas import StatusTier
+from backend.schemas import RecencyScore, StatusTier
 
 # shared anchor for every datetime below
 BASE_TIME = datetime(2026, 10, 1, 12, 0, 0)
@@ -399,3 +402,110 @@ def test_rand_pick_new_words_input_unchanged():
     cpy_dict = all_new_words_dict_rp_mut.copy()
     rand_pick_new_words(num_new_words_rp_mut, all_new_words_dict_rp_mut)
     assert cpy_dict == all_new_words_dict_rp_mut
+
+
+# ---------------
+# Frontier Selection (select_frontier)
+# ---------------
+# NOTE: select_frontier only reads .total_score, so the other three components are left None.
+# NOTE: dict INSERTION ORDER is part of the input here - ties keep it (sorted() is stable).
+# In production that order comes from compute_recency_scores' UserVocab query
+# (.order_by(UserVocab.vocab_id)), i.e. ties resolve to the lowest vocab_id.
+def _scores(id_to_total: dict[int, float]) -> dict[int, RecencyScore]:
+    """ID -> total_score shorthand, in the given insertion order."""
+    return {
+        vid: RecencyScore(
+            time_pressure=None,
+            rel_interact_pressure=None,
+            hist_memory=None,
+            total_score=total,
+        )
+        for vid, total in id_to_total.items()
+    }
+
+
+# A) Testing Scenarios
+# --- Scenario 1: distinct scores, inserted OUT of score order (the sort actually has to work) ---
+recency_scores_sf_1 = _scores({1: 0.2, 2: 0.9, 3: 0.4, 4: 0.7, 5: 0.1})
+allowance_sf_1 = 2
+expected_frontier_sf_1 = {2, 4}
+expected_other_sf_1 = {1, 3, 5}
+
+# --- Scenario 2: allowance == # of scores -> everything is frontier ---
+recency_scores_sf_2 = _scores({1: 0.2, 2: 0.9, 3: 0.4})
+allowance_sf_2 = 3
+expected_frontier_sf_2 = {1, 2, 3}
+expected_other_sf_2 = set()
+
+# --- Scenario 3: allowance NEGATIVE ---
+recency_scores_sf_3 = _scores({1: 0.2, 2: 0.9, 3: 0.4})
+allowance_sf_3 = -2
+expected_frontier_sf_3 = set()
+expected_other_sf_3 = {1, 2, 3}
+
+# --- Scenario 4: allowance ZERO ---
+recency_scores_sf_4 = _scores({1: 0.2, 2: 0.9, 3: 0.4})
+allowance_sf_4 = 0
+expected_frontier_sf_4 = set()
+expected_other_sf_4 = {1, 2, 3}
+
+# --- Scenario 5: tie STRADDLING the cutoff - one clear winner, then three-way tie for 2 slots ---
+# tied IDs (7, 3, 5) inserted in that order, NOT ascending, so "lowest ID wins" != "first inserted wins"
+recency_scores_sf_5 = _scores({7: 0.5, 1: 0.1, 3: 0.5, 9: 0.9, 5: 0.5})
+allowance_sf_5 = 3
+expected_frontier_sf_5 = {9, 7, 3}
+expected_other_sf_5 = {1, 5}
+
+
+# B) Parametrization
+@pytest.mark.parametrize(
+    "recency_scores, remaining_frontier_allowance, expected_frontier, expected_other",
+    [
+        pytest.param(
+            recency_scores_sf_1,
+            allowance_sf_1,
+            expected_frontier_sf_1,
+            expected_other_sf_1,
+            id="distinct scores, unsorted input",
+        ),
+        pytest.param(
+            recency_scores_sf_2,
+            allowance_sf_2,
+            expected_frontier_sf_2,
+            expected_other_sf_2,
+            id="allowance == # of scores",
+        ),
+        pytest.param(
+            recency_scores_sf_3,
+            allowance_sf_3,
+            expected_frontier_sf_3,
+            expected_other_sf_3,
+            id="negative allowance",
+        ),
+        pytest.param(
+            recency_scores_sf_4,
+            allowance_sf_4,
+            expected_frontier_sf_4,
+            expected_other_sf_4,
+            id="zero allowance",
+        ),
+        pytest.param(
+            recency_scores_sf_5,
+            allowance_sf_5,
+            expected_frontier_sf_5,
+            expected_other_sf_5,
+            id="tie straddles cutoff",
+        ),
+    ],
+)
+
+# C) Function Call
+def test_select_frontier(
+    recency_scores, remaining_frontier_allowance, expected_frontier, expected_other
+):
+    frontier_set, other_set = select_frontier(
+        recency_scores, remaining_frontier_allowance
+    )
+
+    assert expected_frontier == frontier_set
+    assert expected_other == other_set
